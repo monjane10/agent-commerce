@@ -1,22 +1,4 @@
-type Produto = {
-  nome: string;
-  quantidade: number;
-};
-
-const produtos: Produto[] = [
-  {
-    nome: "Luvas de Boxe",
-    quantidade: 12,
-  },
-  {
-    nome: "Kimono",
-    quantidade: 8,
-  },
-  {
-    nome: "Caneleiras",
-    quantidade: 4,
-  },
-];
+import { produtos } from "../data/produtos.js";
 
 export async function consultarStock(produto: string) {
   const encontrado = produtos.find((item) =>
