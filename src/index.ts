@@ -19,6 +19,13 @@ import { buscarCliente } from "./tools/clientes.js";
 
 import { criarVenda } from "./tools/vendas.js";
 
+import {
+  criarConversa,
+  guardarMensagem,
+  atualizarResponseId,
+  buscarUltimaConversa,
+} from "./memory/conversas.js";
+
 
 // ======================================================
 // OPENAI
@@ -200,23 +207,28 @@ async function executarTool(
   argumentos: Record<string, unknown>,
 ) {
   switch (nome) {
+
     case "consultar_stock":
       return await consultarStock(
         argumentos.produto as string,
       );
+
 
     case "buscar_produto":
       return await buscarProduto(
         argumentos.nome as string,
       );
 
+
     case "listar_produtos":
       return await listarProdutos();
+
 
     case "buscar_cliente":
       return await buscarCliente(
         argumentos.nome as string,
       );
+
 
     case "criar_venda":
       return await criarVenda(
@@ -225,6 +237,7 @@ async function executarTool(
         argumentos.quantidade as number,
         argumentos.metodo_pagamento as string,
       );
+
 
     default:
       throw new Error(
@@ -258,7 +271,8 @@ REGRAS:
 
 - Se forem encontrados vários clientes com nomes
   semelhantes, não escolhas um deles sozinho.
-  Pergunta ao utilizador qual é o cliente correto.
+
+- Nesse caso, pergunta ao utilizador qual é o cliente correto.
 
 - Se o cliente não existir, não cries a venda.
 
@@ -282,39 +296,69 @@ REGRAS:
 
 
 // ======================================================
-// PROCESSAR UMA MENSAGEM DO UTILIZADOR
+// PROCESSAR UMA MENSAGEM
 // ======================================================
 
 async function processarMensagem(
+  conversaId: number,
   mensagem: string,
   previousResponseId?: string,
 ): Promise<string> {
 
-  let response = await openai.responses.create({
-    model: process.env.OPENAI_MODEL!,
+  // ====================================================
+  // GUARDAR MENSAGEM DO UTILIZADOR
+  // ====================================================
 
-    instructions: INSTRUCOES,
-
-    input: mensagem,
-
-    tools,
-
-    tool_choice: "auto",
-
-    parallel_tool_calls: true,
-
-    ...(previousResponseId
-      ? {
-          previous_response_id:
-            previousResponseId,
-        }
-      : {}),
-  });
+  await guardarMensagem(
+    conversaId,
+    "user",
+    mensagem,
+  );
 
 
-  // Proteção contra loops infinitos
+  // ====================================================
+  // PRIMEIRA CHAMADA AO MODELO
+  // ====================================================
+
+  let response =
+    await openai.responses.create({
+
+      model:
+        process.env.OPENAI_MODEL!,
+
+      instructions:
+        INSTRUCOES,
+
+      input:
+        mensagem,
+
+      tools,
+
+      tool_choice:
+        "auto",
+
+      parallel_tool_calls:
+        true,
+
+      ...(previousResponseId
+        ? {
+            previous_response_id:
+              previousResponseId,
+          }
+        : {}),
+    });
+
+
+  // ====================================================
+  // PROTEÇÃO CONTRA LOOP INFINITO
+  // ====================================================
+
   const MAX_ITERACOES = 10;
 
+
+  // ====================================================
+  // AGENT LOOP
+  // ====================================================
 
   for (
     let iteracao = 1;
@@ -327,28 +371,58 @@ async function processarMensagem(
     );
 
 
-    // Encontrar todas as function calls
-    const toolCalls = response.output.filter(
-      (item) =>
-        item.type === "function_call",
-    );
+    // ==================================================
+    // ENCONTRAR FUNCTION CALLS
+    // ==================================================
+
+    const toolCalls =
+      response.output.filter(
+        (item) =>
+          item.type === "function_call",
+      );
 
 
     // ==================================================
-    // NÃO EXISTEM MAIS TOOLS PARA EXECUTAR
+    // SE NÃO EXISTEM TOOLS, TEMOS A RESPOSTA FINAL
     // ==================================================
 
     if (toolCalls.length === 0) {
 
-      console.log("\nAssistente:");
+      const respostaFinal =
+        response.output_text ||
+        "Não foi possível gerar uma resposta.";
+
 
       console.log(
-        response.output_text ||
-          "Não foi possível gerar uma resposta.",
+        "\nAssistente:",
       );
 
-      // Devolvemos o ID para continuar
-      // a conversa posteriormente
+      console.log(
+        respostaFinal,
+      );
+
+
+      // ================================================
+      // GUARDAR RESPOSTA DO ASSISTENTE
+      // ================================================
+
+      await guardarMensagem(
+        conversaId,
+        "assistant",
+        respostaFinal,
+      );
+
+
+      // ================================================
+      // GUARDAR O ÚLTIMO RESPONSE ID
+      // ================================================
+
+      await atualizarResponseId(
+        conversaId,
+        response.id,
+      );
+
+
       return response.id;
     }
 
@@ -358,8 +432,10 @@ async function processarMensagem(
     );
 
 
-    // Resultados que serão enviados
-    // novamente ao modelo
+    // ==================================================
+    // PREPARAR RESULTADOS DAS TOOLS
+    // ==================================================
+
     const toolOutputs: Array<{
       type: "function_call_output";
       call_id: string;
@@ -368,7 +444,7 @@ async function processarMensagem(
 
 
     // ==================================================
-    // EXECUTAR TODAS AS TOOLS PEDIDAS
+    // EXECUTAR TODAS AS TOOLS
     // ==================================================
 
     for (const toolCall of toolCalls) {
@@ -380,23 +456,41 @@ async function processarMensagem(
       }
 
 
-      console.log("\nTool escolhida:");
+      console.log(
+        "\nTool escolhida:",
+      );
 
-      console.log(toolCall.name);
-
-
-      // Converter argumentos JSON
-      const argumentos = JSON.parse(
-        toolCall.arguments,
-      ) as Record<string, unknown>;
+      console.log(
+        toolCall.name,
+      );
 
 
-      console.log("Argumentos:");
+      // ================================================
+      // CONVERTER ARGUMENTOS
+      // ================================================
 
-      console.log(argumentos);
+      const argumentos =
+        JSON.parse(
+          toolCall.arguments,
+        ) as Record<
+          string,
+          unknown
+        >;
 
 
-      // Executar a função real
+      console.log(
+        "Argumentos:",
+      );
+
+      console.log(
+        argumentos,
+      );
+
+
+      // ================================================
+      // EXECUTAR TOOL REAL
+      // ================================================
+
       const resultado =
         await executarTool(
           toolCall.name,
@@ -404,44 +498,61 @@ async function processarMensagem(
         );
 
 
-      console.log("Resultado:");
+      console.log(
+        "Resultado:",
+      );
 
-      console.log(resultado);
+      console.log(
+        resultado,
+      );
 
 
-      // Preparar resultado para devolver
-      // ao modelo
+      // ================================================
+      // GUARDAR RESULTADO PARA ENVIAR AO MODELO
+      // ================================================
+
       toolOutputs.push({
-        type: "function_call_output",
 
-        call_id: toolCall.call_id,
+        type:
+          "function_call_output",
 
-        output: JSON.stringify(resultado),
+        call_id:
+          toolCall.call_id,
+
+        output:
+          JSON.stringify(
+            resultado,
+          ),
       });
     }
 
 
     // ==================================================
-    // DEVOLVER RESULTADOS DAS TOOLS AO MODELO
+    // DEVOLVER RESULTADOS AO MODELO
     // ==================================================
 
     response =
       await openai.responses.create({
+
         model:
           process.env.OPENAI_MODEL!,
 
-        instructions: INSTRUCOES,
+        instructions:
+          INSTRUCOES,
 
         previous_response_id:
           response.id,
 
         tools,
 
-        tool_choice: "auto",
+        tool_choice:
+          "auto",
 
-        parallel_tool_calls: true,
+        parallel_tool_calls:
+          true,
 
-        input: toolOutputs,
+        input:
+          toolOutputs,
       });
   }
 
@@ -453,20 +564,16 @@ async function processarMensagem(
 
 
 // ======================================================
-// CONVERSA CONTÍNUA NO TERMINAL
+// APLICAÇÃO PRINCIPAL
 // ======================================================
 
 async function main() {
 
-  const rl = createInterface({
-    input,
-    output,
-  });
-
-
-  let previousResponseId:
-    | string
-    | undefined;
+  const rl =
+    createInterface({
+      input,
+      output,
+    });
 
 
   console.log(
@@ -478,33 +585,135 @@ async function main() {
   );
 
   console.log(
-    "===================================",
+    "===================================\n",
   );
+
+
+  // ====================================================
+  // PROCURAR ÚLTIMA CONVERSA
+  // ====================================================
+
+  const ultimaConversa =
+    await buscarUltimaConversa();
+
+
+  // ====================================================
+  // ESTADO DA CONVERSA ATUAL
+  // ====================================================
+
+  let conversaId:
+    number | null = null;
+
+
+  let previousResponseId:
+    string | undefined;
+
+
+  // ====================================================
+  // SE EXISTIR CONVERSA ANTERIOR
+  // ====================================================
+
+  if (ultimaConversa) {
+
+    console.log(
+      "Encontrei uma conversa anterior:\n",
+    );
+
+
+    console.log(
+      `ID: ${ultimaConversa.id}`,
+    );
+
+
+    console.log(
+      `Título: ${ultimaConversa.titulo}`,
+    );
+
+
+    console.log(
+      "\n1 - Continuar conversa",
+    );
+
+
+    console.log(
+      "2 - Nova conversa\n",
+    );
+
+
+    const escolha =
+      await rl.question(
+        "Escolha uma opção: ",
+      );
+
+
+    // ==================================================
+    // CONTINUAR CONVERSA
+    // ==================================================
+
+    if (
+      escolha.trim() === "1"
+    ) {
+
+      conversaId =
+        ultimaConversa.id;
+
+
+      previousResponseId =
+        ultimaConversa
+          .openai_response_id ??
+        undefined;
+
+
+      console.log(
+        "\nConversa retomada.\n",
+      );
+
+    } else {
+
+      console.log(
+        "\nNova conversa iniciada.\n",
+      );
+    }
+  }
+
 
   console.log(
-    '\nEscreve "sair" para terminar.\n',
+    'Escreve "sair" para terminar.\n',
   );
 
+
+  // ====================================================
+  // CONVERSATION LOOP
+  // ====================================================
 
   while (true) {
 
     const mensagem =
-      await rl.question("Você: ");
+      await rl.question(
+        "Você: ",
+      );
 
 
     const mensagemLimpa =
       mensagem.trim();
 
 
-    // Ignorar mensagens vazias
+    // ==================================================
+    // IGNORAR MENSAGEM VAZIA
+    // ==================================================
+
     if (!mensagemLimpa) {
       continue;
     }
 
 
-    // Encerrar aplicação
+    // ==================================================
+    // SAIR
+    // ==================================================
+
     if (
-      mensagemLimpa.toLowerCase() ===
+      mensagemLimpa
+        .toLowerCase() ===
       "sair"
     ) {
 
@@ -512,7 +721,9 @@ async function main() {
         "\nConversa terminada.",
       );
 
+
       rl.close();
+
 
       break;
     }
@@ -520,9 +731,62 @@ async function main() {
 
     try {
 
+      // ================================================
+      // CRIAR NOVA CONVERSA
+      // ================================================
+
+      if (conversaId === null) {
+
+        let titulo =
+          mensagemLimpa;
+
+
+        // Limitar tamanho do título
+        if (
+          titulo.length > 60
+        ) {
+
+          titulo =
+            titulo.substring(
+              0,
+              60,
+            ) + "...";
+        }
+
+
+        const novaConversa =
+          await criarConversa(
+            titulo,
+          );
+
+
+        conversaId =
+          novaConversa.id;
+
+
+        // Como é nova conversa,
+        // não existe response anterior
+        previousResponseId =
+          undefined;
+
+
+        console.log(
+          `\nNova conversa criada (ID ${conversaId}).`,
+        );
+      }
+
+
+      // ================================================
+      // PROCESSAR MENSAGEM
+      // ================================================
+
       previousResponseId =
         await processarMensagem(
+
+          conversaId,
+
           mensagemLimpa,
+
           previousResponseId,
         );
 
@@ -535,14 +799,52 @@ async function main() {
         "\nErro ao processar mensagem:",
       );
 
-      console.error(error);
+
+      if (
+        error instanceof Error
+      ) {
+
+        console.error(
+          error.message,
+        );
+
+      } else {
+
+        console.error(
+          error,
+        );
+      }
     }
   }
 }
 
 
 // ======================================================
-// INICIAR PROGRAMA
+// INICIAR APLICAÇÃO
 // ======================================================
 
-main();
+main().catch((error) => {
+
+  console.error(
+    "\nErro fatal ao iniciar aplicação:",
+  );
+
+
+  if (
+    error instanceof Error
+  ) {
+
+    console.error(
+      error.message,
+    );
+
+  } else {
+
+    console.error(
+      error,
+    );
+  }
+
+
+  process.exit(1);
+});
