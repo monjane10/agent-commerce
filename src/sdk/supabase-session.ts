@@ -7,6 +7,17 @@ import { supabase } from "../lib/supabase.js";
 
 
 // ======================================================
+// CONVERTER JSON DO SUPABASE PARA ITEM DO AGENTS SDK
+// ======================================================
+
+function converterParaAgentInputItem(
+  valor: unknown,
+): AgentInputItem {
+  return valor as AgentInputItem;
+}
+
+
+// ======================================================
 // SUPABASE SESSION
 // ======================================================
 
@@ -28,21 +39,27 @@ export class SupabaseSession implements Session {
   // ====================================================
 
   private async garantirConversa(): Promise<number> {
-    // Se já carregámos a conversa nesta execução,
+    // Se já temos o ID carregado nesta execução,
     // não precisamos consultar novamente.
     if (this.conversaId !== null) {
       return this.conversaId;
     }
 
 
-    // Procurar conversa existente
+    // ==================================================
+    // PROCURAR CONVERSA EXISTENTE
+    // ==================================================
+
     const {
       data: conversaExistente,
       error: erroBusca,
     } = await supabase
       .from("conversas")
       .select("id")
-      .eq("sdk_session_id", this.sessionId)
+      .eq(
+        "sdk_session_id",
+        this.sessionId,
+      )
       .maybeSingle();
 
 
@@ -53,23 +70,33 @@ export class SupabaseSession implements Session {
     }
 
 
-    // Se já existe, reutilizamos
+    // ==================================================
+    // REUTILIZAR CONVERSA EXISTENTE
+    // ==================================================
+
     if (conversaExistente) {
-      this.conversaId = conversaExistente.id;
+      this.conversaId =
+        conversaExistente.id;
 
       return conversaExistente.id;
     }
 
 
-    // Criar uma nova conversa
+    // ==================================================
+    // CRIAR NOVA CONVERSA
+    // ==================================================
+
     const {
       data: novaConversa,
       error: erroCriacao,
     } = await supabase
       .from("conversas")
       .insert({
-        titulo: "Conversa Agents SDK",
-        sdk_session_id: this.sessionId,
+        titulo:
+          "Conversa Agents SDK",
+
+        sdk_session_id:
+          this.sessionId,
       })
       .select("id")
       .single();
@@ -82,9 +109,27 @@ export class SupabaseSession implements Session {
     }
 
 
-    this.conversaId = novaConversa.id;
+    if (!novaConversa) {
+      throw new Error(
+        "Não foi possível criar a conversa.",
+      );
+    }
+
+
+    this.conversaId =
+      novaConversa.id;
+
 
     return novaConversa.id;
+  }
+
+
+  // ====================================================
+  // OBTER ID DA CONVERSA
+  // ====================================================
+
+  async getConversaId(): Promise<number> {
+    return this.garantirConversa();
   }
 
 
@@ -110,9 +155,9 @@ export class SupabaseSession implements Session {
       await this.garantirConversa();
 
 
-    // --------------------------------------------------
+    // ==================================================
     // SEM LIMITE
-    // --------------------------------------------------
+    // ==================================================
 
     if (limit === undefined) {
       const {
@@ -120,11 +165,19 @@ export class SupabaseSession implements Session {
         error,
       } = await supabase
         .from("sdk_session_items")
-        .select("id, item")
-        .eq("conversa_id", conversaId)
-        .order("id", {
-          ascending: true,
-        });
+        .select(
+          "id, item",
+        )
+        .eq(
+          "conversa_id",
+          conversaId,
+        )
+        .order(
+          "id",
+          {
+            ascending: true,
+          },
+        );
 
 
       if (error) {
@@ -134,40 +187,53 @@ export class SupabaseSession implements Session {
       }
 
 
-      const items: AgentInputItem[] =
-        (data ?? []).map((registo) => {
-          return registo.item as AgentInputItem;
-        });
+      const itens =
+        (data ?? []).map(
+          (registo) =>
+            converterParaAgentInputItem(
+              registo.item,
+            ),
+        );
 
 
-      return items;
+      return itens;
     }
 
 
-    // --------------------------------------------------
-    // LIMITE ZERO OU NEGATIVO
-    // --------------------------------------------------
+    // ==================================================
+    // LIMITE INVÁLIDO
+    // ==================================================
 
     if (limit <= 0) {
       return [];
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // ÚLTIMOS N ITENS
-    // --------------------------------------------------
+    // ==================================================
 
     const {
       data,
       error,
     } = await supabase
       .from("sdk_session_items")
-      .select("id, item")
-      .eq("conversa_id", conversaId)
-      .order("id", {
-        ascending: false,
-      })
-      .limit(limit);
+      .select(
+        "id, item",
+      )
+      .eq(
+        "conversa_id",
+        conversaId,
+      )
+      .order(
+        "id",
+        {
+          ascending: false,
+        },
+      )
+      .limit(
+        limit,
+      );
 
 
     if (error) {
@@ -180,16 +246,19 @@ export class SupabaseSession implements Session {
     // O Supabase devolve do mais recente
     // para o mais antigo.
     //
-    // O Agents SDK espera ordem cronológica.
-    const items: AgentInputItem[] =
+    // O Agents SDK precisa da ordem cronológica.
+    const itens =
       (data ?? [])
         .reverse()
-        .map((registo) => {
-          return registo.item as AgentInputItem;
-        });
+        .map(
+          (registo) =>
+            converterParaAgentInputItem(
+              registo.item,
+            ),
+        );
 
 
-    return items;
+    return itens;
   }
 
 
@@ -210,19 +279,23 @@ export class SupabaseSession implements Session {
 
 
     const registos =
-      items.map((item) => {
-        return {
-          conversa_id: conversaId,
-          item: item,
-        };
-      });
+      items.map(
+        (item) => ({
+          conversa_id:
+            conversaId,
+
+          item,
+        }),
+      );
 
 
     const {
       error,
     } = await supabase
       .from("sdk_session_items")
-      .insert(registos);
+      .insert(
+        registos,
+      );
 
 
     if (error) {
@@ -232,7 +305,10 @@ export class SupabaseSession implements Session {
     }
 
 
-    // Atualizar a data da conversa
+    // ==================================================
+    // ATUALIZAR DATA DA CONVERSA
+    // ==================================================
+
     const {
       error: erroUpdate,
     } = await supabase
@@ -241,7 +317,10 @@ export class SupabaseSession implements Session {
         updated_at:
           new Date().toISOString(),
       })
-      .eq("id", conversaId);
+      .eq(
+        "id",
+        conversaId,
+      );
 
 
     if (erroUpdate) {
@@ -262,17 +341,28 @@ export class SupabaseSession implements Session {
       await this.garantirConversa();
 
 
-    // Procurar o item mais recente
+    // ==================================================
+    // PROCURAR ÚLTIMO ITEM
+    // ==================================================
+
     const {
       data,
       error,
     } = await supabase
       .from("sdk_session_items")
-      .select("id, item")
-      .eq("conversa_id", conversaId)
-      .order("id", {
-        ascending: false,
-      })
+      .select(
+        "id, item",
+      )
+      .eq(
+        "conversa_id",
+        conversaId,
+      )
+      .order(
+        "id",
+        {
+          ascending: false,
+        },
+      )
       .limit(1)
       .maybeSingle();
 
@@ -289,13 +379,19 @@ export class SupabaseSession implements Session {
     }
 
 
-    // Remover o último item
+    // ==================================================
+    // REMOVER ÚLTIMO ITEM
+    // ==================================================
+
     const {
       error: erroDelete,
     } = await supabase
       .from("sdk_session_items")
       .delete()
-      .eq("id", data.id);
+      .eq(
+        "id",
+        data.id,
+      );
 
 
     if (erroDelete) {
@@ -305,11 +401,9 @@ export class SupabaseSession implements Session {
     }
 
 
-    const item =
-      data.item as AgentInputItem;
-
-
-    return item;
+    return converterParaAgentInputItem(
+      data.item,
+    );
   }
 
 
@@ -327,7 +421,10 @@ export class SupabaseSession implements Session {
     } = await supabase
       .from("sdk_session_items")
       .delete()
-      .eq("conversa_id", conversaId);
+      .eq(
+        "conversa_id",
+        conversaId,
+      );
 
 
     if (error) {
