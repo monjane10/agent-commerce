@@ -87,79 +87,79 @@ const tools = [
     },
   },
   {
-  type: "function" as const,
+    type: "function" as const,
 
-  name: "buscar_cliente",
+    name: "buscar_cliente",
 
-  description:
-    "Procura clientes cadastrados pelo nome. Deve ser usada para descobrir o ID real de um cliente.",
+    description:
+      "Procura clientes cadastrados pelo nome. Deve ser usada para descobrir o ID real de um cliente.",
 
-  strict: true,
+    strict: true,
 
-  parameters: {
-    type: "object",
+    parameters: {
+      type: "object",
 
-    properties: {
-      nome: {
-        type: "string",
-        description:
-          "Nome ou parte do nome do cliente",
+      properties: {
+        nome: {
+          type: "string",
+          description:
+            "Nome ou parte do nome do cliente",
+        },
       },
+
+      required: ["nome"],
+      additionalProperties: false,
     },
-
-    required: ["nome"],
-    additionalProperties: false,
   },
-},
-{
-  type: "function" as const,
+  {
+    type: "function" as const,
 
-  name: "criar_venda",
+    name: "criar_venda",
 
-  description:
-    "Regista uma venda depois de o cliente e o produto terem sido identificados.",
+    description:
+      "Regista uma venda depois de o cliente e o produto terem sido identificados.",
 
-  strict: true,
+    strict: true,
 
-  parameters: {
-    type: "object",
+    parameters: {
+      type: "object",
 
-    properties: {
-      cliente_id: {
-        type: "integer",
-        description:
-          "ID real do cliente obtido através da tool buscar_cliente",
+      properties: {
+        cliente_id: {
+          type: "integer",
+          description:
+            "ID real do cliente obtido através da tool buscar_cliente",
+        },
+
+        produto_id: {
+          type: "integer",
+          description:
+            "ID real do produto obtido através da tool buscar_produto",
+        },
+
+        quantidade: {
+          type: "integer",
+          description:
+            "Quantidade do produto a vender",
+        },
+
+        metodo_pagamento: {
+          type: "string",
+          description:
+            "Método de pagamento utilizado pelo cliente",
+        },
       },
 
-      produto_id: {
-        type: "integer",
-        description:
-          "ID real do produto obtido através da tool buscar_produto",
-      },
+      required: [
+        "cliente_id",
+        "produto_id",
+        "quantidade",
+        "metodo_pagamento",
+      ],
 
-      quantidade: {
-        type: "integer",
-        description:
-          "Quantidade do produto a vender",
-      },
-
-      metodo_pagamento: {
-        type: "string",
-        description:
-          "Método de pagamento utilizado pelo cliente",
-      },
+      additionalProperties: false,
     },
-
-    required: [
-      "cliente_id",
-      "produto_id",
-      "quantidade",
-      "metodo_pagamento",
-    ],
-
-    additionalProperties: false,
   },
-},
 ];
 
 async function executarTool(
@@ -179,18 +179,18 @@ async function executarTool(
 
     case "listar_produtos":
       return await listarProdutos();
-      case "buscar_cliente":
-  return await buscarCliente(
-    argumentos.nome as string,
-  );
+    case "buscar_cliente":
+      return await buscarCliente(
+        argumentos.nome as string,
+      );
 
-case "criar_venda":
-  return await criarVenda(
-    argumentos.cliente_id as number,
-    argumentos.produto_id as number,
-    argumentos.quantidade as number,
-    argumentos.metodo_pagamento as string,
-  );
+    case "criar_venda":
+      return await criarVenda(
+        argumentos.cliente_id as number,
+        argumentos.produto_id as number,
+        argumentos.quantidade as number,
+        argumentos.metodo_pagamento as string,
+      );
 
     default:
       throw new Error(
@@ -232,7 +232,7 @@ REGRAS:
 
 async function main() {
   const pergunta =
-    "Quanto custam as luvas de boxe e quantas caneleiras temos em stock?";
+  "Regista uma venda de 3 Luvas de Boxe para João, pagamento M-Pesa.";
 
   console.log("\nUtilizador:");
   console.log(pergunta);
@@ -240,6 +240,7 @@ async function main() {
   // Primeira chamada ao modelo
   let response = await openai.responses.create({
     model: process.env.OPENAI_MODEL!,
+    instructions: INSTRUCOES,
     input: pergunta,
     tools,
     tool_choice: "auto",
@@ -308,9 +309,15 @@ async function main() {
     // Devolver os resultados das tools ao modelo
     response = await openai.responses.create({
       model: process.env.OPENAI_MODEL!,
+
+      instructions: INSTRUCOES,
+
       previous_response_id: response.id,
+
       tools,
+
       tool_choice: "auto",
+
       input: toolOutputs,
     });
   }
