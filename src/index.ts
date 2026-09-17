@@ -6,6 +6,8 @@ import {
   buscarProduto,
   listarProdutos,
 } from "./tools/produtos.js";
+import { buscarCliente } from "./tools/clientes.js";
+import { criarVenda } from "./tools/vendas.js";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -84,6 +86,80 @@ const tools = [
       additionalProperties: false,
     },
   },
+  {
+  type: "function" as const,
+
+  name: "buscar_cliente",
+
+  description:
+    "Procura clientes cadastrados pelo nome. Deve ser usada para descobrir o ID real de um cliente.",
+
+  strict: true,
+
+  parameters: {
+    type: "object",
+
+    properties: {
+      nome: {
+        type: "string",
+        description:
+          "Nome ou parte do nome do cliente",
+      },
+    },
+
+    required: ["nome"],
+    additionalProperties: false,
+  },
+},
+{
+  type: "function" as const,
+
+  name: "criar_venda",
+
+  description:
+    "Regista uma venda depois de o cliente e o produto terem sido identificados.",
+
+  strict: true,
+
+  parameters: {
+    type: "object",
+
+    properties: {
+      cliente_id: {
+        type: "integer",
+        description:
+          "ID real do cliente obtido através da tool buscar_cliente",
+      },
+
+      produto_id: {
+        type: "integer",
+        description:
+          "ID real do produto obtido através da tool buscar_produto",
+      },
+
+      quantidade: {
+        type: "integer",
+        description:
+          "Quantidade do produto a vender",
+      },
+
+      metodo_pagamento: {
+        type: "string",
+        description:
+          "Método de pagamento utilizado pelo cliente",
+      },
+    },
+
+    required: [
+      "cliente_id",
+      "produto_id",
+      "quantidade",
+      "metodo_pagamento",
+    ],
+
+    additionalProperties: false,
+  },
+},
 ];
 
 async function executarTool(
@@ -103,6 +179,18 @@ async function executarTool(
 
     case "listar_produtos":
       return await listarProdutos();
+      case "buscar_cliente":
+  return await buscarCliente(
+    argumentos.nome as string,
+  );
+
+case "criar_venda":
+  return await criarVenda(
+    argumentos.cliente_id as number,
+    argumentos.produto_id as number,
+    argumentos.quantidade as number,
+    argumentos.metodo_pagamento as string,
+  );
 
     default:
       throw new Error(
@@ -110,6 +198,8 @@ async function executarTool(
       );
   }
 }
+
+
 
 async function main() {
   const pergunta =
