@@ -1,11 +1,23 @@
-import { produtos } from "../data/produtos.js";
+import { supabase } from "../lib/supabase.js";
 
-export async function buscarProduto(nome: string) {
-  const encontrado = produtos.find((produto) =>
-    produto.nome.toLowerCase().includes(nome.toLowerCase()),
-  );
+export async function buscarProduto(
+  nome: string,
+) {
+  const { data, error } = await supabase
+    .from("produtos")
+    .select(
+      "id, nome, preco, moeda, quantidade",
+    )
+    .ilike("nome", `%${nome}%`)
+    .limit(1);
 
-  if (!encontrado) {
+  if (error) {
+    throw new Error(
+      `Erro ao buscar produto: ${error.message}`,
+    );
+  }
+
+  if (!data || data.length === 0) {
     return {
       encontrado: false,
       mensagem: "Produto não encontrado",
@@ -14,10 +26,23 @@ export async function buscarProduto(nome: string) {
 
   return {
     encontrado: true,
-    produto: encontrado,
+    produto: data[0],
   };
 }
 
 export async function listarProdutos() {
-  return produtos;
+  const { data, error } = await supabase
+    .from("produtos")
+    .select(
+      "id, nome, preco, moeda, quantidade",
+    )
+    .order("nome");
+
+  if (error) {
+    throw new Error(
+      `Erro ao listar produtos: ${error.message}`,
+    );
+  }
+
+  return data;
 }
