@@ -70,17 +70,47 @@ type AgentCommerceContext = {
 
 
 // ======================================================
-// VENDA EM CURSO
+// TIPOS DA APROVAÇÃO
+// ======================================================
+
+type DadosVendaAprovacao = {
+  cliente_id?: number;
+  produto_id?: number;
+  quantidade?: number;
+  metodo_pagamento?: string;
+};
+
+
+type ResumoVendaAprovacao = {
+  clienteNome: string;
+  produtoNome: string;
+
+  quantidade: number;
+
+  metodoPagamento: string;
+
+  precoUnitario: number | null;
+
+  moeda: string;
+
+  total: number | null;
+};
+
+
+// ======================================================
+// VERIFICAR SE EXISTE VENDA EM CURSO
 // ======================================================
 
 function vendaEmCurso(
   estado: AgentState,
 ): boolean {
   if (
-    estado.operacao !== "criar_venda"
+    estado.operacao !==
+    "criar_venda"
   ) {
     return false;
   }
+
 
   return ![
     "idle",
@@ -133,14 +163,17 @@ async function atualizarEstadoContexto(
 // ======================================================
 
 const consultarStockTool = tool({
-  name: "consultar_stock",
+  name:
+    "consultar_stock",
 
   description:
     "Consulta especificamente a quantidade disponível em stock de um produto.",
 
-  parameters: z.object({
-    produto: z.string(),
-  }),
+  parameters:
+    z.object({
+      produto:
+        z.string(),
+    }),
 
   execute: async ({
     produto,
@@ -155,9 +188,6 @@ const consultarStockTool = tool({
 
     console.log(
       "Produto:",
-    );
-
-    console.log(
       produto,
     );
 
@@ -170,9 +200,6 @@ const consultarStockTool = tool({
 
     console.log(
       "Resultado:",
-    );
-
-    console.log(
       resultado,
     );
 
@@ -187,14 +214,17 @@ const consultarStockTool = tool({
 // ======================================================
 
 const buscarProdutoTool = tool({
-  name: "buscar_produto",
+  name:
+    "buscar_produto",
 
   description:
     "Procura informações completas de um produto, incluindo nome, preço, moeda e quantidade disponível.",
 
-  parameters: z.object({
-    nome: z.string(),
-  }),
+  parameters:
+    z.object({
+      nome:
+        z.string(),
+    }),
 
   execute: async (
     {
@@ -214,9 +244,6 @@ const buscarProdutoTool = tool({
 
     console.log(
       "Produto procurado:",
-    );
-
-    console.log(
       nome,
     );
 
@@ -229,12 +256,42 @@ const buscarProdutoTool = tool({
 
     console.log(
       "Resultado:",
-    );
-
-    console.log(
       resultado,
     );
 
+
+    // ==================================================
+    // EXTRAIR PRODUTO DE FORMA SEGURA
+    // ==================================================
+
+    let produto:
+      {
+        id: number;
+        nome: string;
+      } | undefined;
+
+
+    if (
+      typeof resultado ===
+        "object" &&
+      resultado !== null &&
+      "produto" in resultado
+    ) {
+      produto =
+        (
+          resultado as {
+            produto?: {
+              id: number;
+              nome: string;
+            };
+          }
+        ).produto;
+    }
+
+
+    // ==================================================
+    // ATUALIZAR ESTADO DE VENDA
+    // ==================================================
 
     if (
       runContext &&
@@ -242,19 +299,15 @@ const buscarProdutoTool = tool({
         runContext.context.estado,
       )
     ) {
-      if (
-        resultado.encontrado &&
-        "produto" in resultado &&
-        resultado.produto
-      ) {
+      if (produto) {
         await atualizarEstadoContexto(
           runContext,
           {
             produto_id:
-              resultado.produto.id,
+              produto.id,
 
             produto_nome:
-              resultado.produto.nome,
+              produto.nome,
 
             status:
               "produto_identificado",
@@ -286,7 +339,8 @@ const buscarProdutoTool = tool({
 // ======================================================
 
 const listarProdutosTool = tool({
-  name: "listar_produtos",
+  name:
+    "listar_produtos",
 
   description:
     "Lista todos os produtos disponíveis no sistema, incluindo nome, preço, moeda e quantidade em stock.",
@@ -294,31 +348,29 @@ const listarProdutosTool = tool({
   parameters:
     z.object({}),
 
-  execute: async () => {
-    console.log(
-      "\nTool executada:",
-    );
+  execute:
+    async () => {
+      console.log(
+        "\nTool executada:",
+      );
 
-    console.log(
-      "listar_produtos",
-    );
-
-
-    const resultado =
-      await listarProdutos();
+      console.log(
+        "listar_produtos",
+      );
 
 
-    console.log(
-      "Resultado:",
-    );
-
-    console.log(
-      resultado,
-    );
+      const resultado =
+        await listarProdutos();
 
 
-    return resultado;
-  },
+      console.log(
+        "Resultado:",
+        resultado,
+      );
+
+
+      return resultado;
+    },
 });
 
 
@@ -327,14 +379,17 @@ const listarProdutosTool = tool({
 // ======================================================
 
 const buscarClienteTool = tool({
-  name: "buscar_cliente",
+  name:
+    "buscar_cliente",
 
   description:
     "Procura clientes pelo nome e devolve os clientes encontrados com ID, nome e email.",
 
-  parameters: z.object({
-    nome: z.string(),
-  }),
+  parameters:
+    z.object({
+      nome:
+        z.string(),
+    }),
 
   execute: async (
     {
@@ -354,9 +409,6 @@ const buscarClienteTool = tool({
 
     console.log(
       "Cliente procurado:",
-    );
-
-    console.log(
       nome,
     );
 
@@ -369,21 +421,39 @@ const buscarClienteTool = tool({
 
     console.log(
       "Resultado:",
-    );
-
-    console.log(
       resultado,
     );
 
 
-    const clientes =
+    // ==================================================
+    // EXTRAIR CLIENTES
+    // ==================================================
+
+    let clientes:
+      Array<{
+        id: number;
+        nome: string;
+        email?: string | null;
+      }> = [];
+
+
+    if (
+      typeof resultado ===
+        "object" &&
+      resultado !== null &&
       "clientes" in resultado &&
       Array.isArray(
         resultado.clientes,
       )
-        ? resultado.clientes
-        : [];
+    ) {
+      clientes =
+        resultado.clientes;
+    }
 
+
+    // ==================================================
+    // ATUALIZAR AGENT STATE
+    // ==================================================
 
     if (
       runContext &&
@@ -420,7 +490,7 @@ const buscarClienteTool = tool({
       }
 
       // -----------------------------------------------
-      // VÁRIOS CLIENTES
+      // CLIENTE AMBÍGUO
       // -----------------------------------------------
 
       else if (
@@ -439,7 +509,7 @@ const buscarClienteTool = tool({
       }
 
       // -----------------------------------------------
-      // NENHUM CLIENTE
+      // NÃO ENCONTRADO
       // -----------------------------------------------
 
       else {
@@ -467,28 +537,36 @@ const buscarClienteTool = tool({
 // ======================================================
 
 const prepararVendaTool = tool({
-  name: "preparar_venda",
+  name:
+    "preparar_venda",
 
   description:
     "Prepara e guarda o estado estruturado de uma operação de venda antes da sua execução.",
 
-  parameters: z.object({
-    cliente_nome:
-      z.string().nullable(),
+  parameters:
+    z.object({
+      cliente_nome:
+        z
+          .string()
+          .nullable(),
 
-    produto_nome:
-      z.string().nullable(),
+      produto_nome:
+        z
+          .string()
+          .nullable(),
 
-    quantidade:
-      z
-        .number()
-        .int()
-        .positive()
-        .nullable(),
+      quantidade:
+        z
+          .number()
+          .int()
+          .positive()
+          .nullable(),
 
-    metodo_pagamento:
-      z.string().nullable(),
-  }),
+      metodo_pagamento:
+        z
+          .string()
+          .nullable(),
+    }),
 
   execute: async (
     {
@@ -521,6 +599,10 @@ const prepararVendaTool = tool({
         estadoAtual,
       );
 
+
+    // ==================================================
+    // PRESERVAR DADOS DA VENDA ATUAL
+    // ==================================================
 
     const clienteNomeFinal =
       cliente_nome ??
@@ -569,6 +651,10 @@ const prepararVendaTool = tool({
         ? estadoAtual.produto_id
         : null;
 
+
+    // ==================================================
+    // DETERMINAR STATUS
+    // ==================================================
 
     let status =
       "preparando_venda";
@@ -647,39 +733,45 @@ const prepararVendaTool = tool({
 // ======================================================
 
 const criarVendaTool = tool({
-  name: "criar_venda",
+  name:
+    "criar_venda",
 
   description:
     "Regista uma venda para um cliente e produto previamente identificados e atualiza o stock.",
+
 
   // ====================================================
   // HUMAN-IN-THE-LOOP
   // ====================================================
 
-  needsApproval: true,
+  needsApproval:
+    true,
 
-  parameters: z.object({
-    cliente_id:
-      z
-        .number()
-        .int()
-        .positive(),
 
-    produto_id:
-      z
-        .number()
-        .int()
-        .positive(),
+  parameters:
+    z.object({
+      cliente_id:
+        z
+          .number()
+          .int()
+          .positive(),
 
-    quantidade:
-      z
-        .number()
-        .int()
-        .positive(),
+      produto_id:
+        z
+          .number()
+          .int()
+          .positive(),
 
-    metodo_pagamento:
-      z.string(),
-  }),
+      quantidade:
+        z
+          .number()
+          .int()
+          .positive(),
+
+      metodo_pagamento:
+        z.string(),
+    }),
+
 
   execute: async (
     {
@@ -692,9 +784,8 @@ const criarVendaTool = tool({
     runContext?:
       RunContext<AgentCommerceContext>,
   ) => {
-    // IMPORTANTE:
-    // este código só é executado DEPOIS
-    // da aprovação humana.
+    // Este código só executa
+    // DEPOIS da aprovação humana.
 
     console.log(
       "\nTool executada:",
@@ -703,17 +794,6 @@ const criarVendaTool = tool({
     console.log(
       "criar_venda",
     );
-
-    console.log(
-      "Dados da venda:",
-    );
-
-    console.log({
-      cliente_id,
-      produto_id,
-      quantidade,
-      metodo_pagamento,
-    });
 
 
     await atualizarEstadoContexto(
@@ -747,9 +827,6 @@ const criarVendaTool = tool({
 
     console.log(
       "Resultado:",
-    );
-
-    console.log(
       resultado,
     );
 
@@ -763,7 +840,7 @@ const criarVendaTool = tool({
 
 
     // ==================================================
-    // VENDA CONCLUÍDA
+    // SUCESSO
     // ==================================================
 
     if (
@@ -781,7 +858,9 @@ const criarVendaTool = tool({
             "string"
               ? vendaResultado.cliente
               : (
-                runContext?.context.estado
+                runContext
+                  ?.context
+                  .estado
                   .cliente_nome ??
                 null
               ),
@@ -791,7 +870,9 @@ const criarVendaTool = tool({
             "string"
               ? vendaResultado.produto
               : (
-                runContext?.context.estado
+                runContext
+                  ?.context
+                  .estado
                   .produto_nome ??
                 null
               ),
@@ -848,8 +929,7 @@ PRODUTOS E STOCK
 
 - Se o utilizador perguntar qual é o produto mais
   barato, mais caro ou fizer uma comparação entre
-  todos os produtos, usa listar_produtos e analisa
-  os dados devolvidos.
+  todos os produtos, usa listar_produtos.
 
 ========================================================
 CLIENTES
@@ -859,129 +939,128 @@ CLIENTES
 
 - Nunca inventes IDs de clientes.
 
-- Usa exclusivamente IDs devolvidos pela tool
+- Usa exclusivamente IDs devolvidos por
   buscar_cliente.
 
 - Se buscar_cliente devolver vários clientes,
   não escolhas sozinho.
 
-- Nesse caso, apresenta as opções encontradas e pede
-  ao utilizador para indicar qual é o cliente correto.
+- Apresenta os NOMES dos clientes ao utilizador.
 
-- Se o utilizador indicar depois um cliente específico
-  após uma pesquisa ambígua, usa buscar_cliente
-  novamente com o nome completo.
+- Nunca peças ao utilizador para escolher um ID.
+
+- O ID é apenas um identificador interno do sistema.
+
+- Se existirem vários clientes, mostra informações
+  compreensíveis como nome e email.
+
+- Depois de o utilizador indicar o cliente correto,
+  usa buscar_cliente novamente com o nome completo.
 
 ========================================================
 VENDAS
 ========================================================
 
-- Quando o utilizador pedir para registar uma nova
-  venda, usa primeiro preparar_venda.
+- Quando o utilizador pedir uma nova venda,
+  usa primeiro preparar_venda.
 
-- preparar_venda serve para guardar de forma
-  estruturada os dados fornecidos pelo utilizador.
+- preparar_venda guarda de forma estruturada
+  os dados fornecidos pelo utilizador.
 
-- Depois de preparar a venda, identifica o cliente
-  usando buscar_cliente.
+- Depois identifica o cliente com buscar_cliente.
 
-- Identifica o produto usando buscar_produto.
+- Depois identifica o produto com buscar_produto.
 
 - Nunca inventes cliente_id.
 
 - Nunca inventes produto_id.
 
-- Usa exclusivamente IDs devolvidos pelas tools.
+- Nunca peças cliente_id ou produto_id ao utilizador.
 
-- Só usa criar_venda depois de o cliente e o produto
-  terem sido corretamente identificados.
+- IDs são detalhes internos da aplicação.
 
-- Nunca uses IDs de uma venda antiga ou concluída
-  para iniciar uma venda nova.
+- Só usa criar_venda quando cliente e produto
+  estiverem corretamente identificados.
 
-- Usa exatamente a quantidade indicada pelo
+- Nunca uses IDs de uma venda anterior para uma
+  nova venda.
+
+- Usa exatamente a quantidade indicada.
+
+- Usa exatamente o método de pagamento indicado.
+
+- Se faltar quantidade, pergunta ao utilizador.
+
+- Se faltar método de pagamento, pergunta ao
   utilizador.
-
-- Usa o método de pagamento indicado pelo
-  utilizador.
-
-- Se faltar quantidade, pede a quantidade antes
-  de executar a venda.
-
-- Se faltar método de pagamento, pede ao utilizador
-  antes de executar a venda.
 
 - Não inventes métodos de pagamento.
 
-- Se houver vários clientes possíveis, não cries
-  a venda até o utilizador esclarecer qual pretende.
-
-- Depois da escolha do cliente, usa buscar_cliente
-  novamente com o nome completo antes de criar
-  a venda.
+- Se houver vários clientes possíveis, aguarda
+  o esclarecimento do utilizador.
 
 - Se o produto não existir, não executes a venda.
-
-- Se criar_venda devolver erro de stock ou outro
-  erro, informa claramente o utilizador.
 
 ========================================================
 APROVAÇÃO HUMANA
 ========================================================
 
-- A tool criar_venda exige aprovação humana.
+- criar_venda exige aprovação humana.
 
-- A aplicação controla a aprovação.
+- A aplicação apresenta os detalhes da venda.
 
-- Nunca tentes contornar a etapa de aprovação.
+- A pessoa deve aprovar com base em nomes e dados
+  compreensíveis, nunca com base apenas em IDs.
 
-- Não consideres uma venda concluída enquanto
-  criar_venda não tiver sido efetivamente executada.
+- Nunca tentes contornar a aprovação.
 
-- Se a venda for rejeitada pelo utilizador, considera
-  a operação cancelada.
+- Uma venda só está concluída depois de criar_venda
+  ser efetivamente executada.
 
-- Depois de uma rejeição, não tentes criar novamente
-  a mesma venda sem um novo pedido explícito do
-  utilizador.
+- Se a venda for rejeitada, considera a operação
+  cancelada.
+
+- Não tentes executar novamente uma venda rejeitada
+  sem um novo pedido explícito.
 
 ========================================================
 CONTEXTO DA CONVERSA
 ========================================================
 
-- Usa o histórico da conversa para compreender
-  referências como:
+- Usa o histórico para compreender expressões como:
 
   "esse produto"
   "esse cliente"
   "dele"
   "dela"
+  "o anterior"
   "o mais barato"
-  "o produto anterior"
 
-- O histórico da conversa e o Agent State são
-  complementares.
+- A Session guarda o histórico.
 
-- A Session guarda o que foi conversado.
+- O Agent State guarda o estado estruturado
+  da operação.
 
-- O Agent State representa a operação estruturada
-  que está em curso.
+- O histórico e o estado são complementares.
 
-- Mesmo tendo histórico e estado, nunca inventes
-  informações que deveriam vir da base de dados.
-
-- Para preços, stock, IDs de clientes, IDs de produtos
-  e outros dados atuais do negócio, usa as tools.
+- Para preços, stock, clientes, produtos e outros
+  dados atuais, consulta sempre as tools.
 
 ========================================================
 REGRAS GERAIS
 ========================================================
 
-- Nunca inventes preços, quantidades, stock,
-  clientes ou IDs.
+- Nunca inventes preços.
 
-- Usa sempre os dados devolvidos pelas tools como
-  fonte de verdade.
+- Nunca inventes stock.
+
+- Nunca inventes clientes.
+
+- Nunca inventes produtos.
+
+- Nunca inventes IDs.
+
+- Os dados das tools são a fonte de verdade.
 
 - Os preços estão em Metical (MZN).
 
@@ -1010,20 +1089,14 @@ ${JSON.stringify(
   2,
 )}
 
-O estado acima representa a tarefa estruturada
-associada a esta conversa.
+Usa este estado apenas como contexto estruturado.
 
-Usa-o apenas como contexto adicional.
-
-O histórico da Session e os dados devolvidos pelas
-tools continuam disponíveis.
-
-Os resultados atuais das tools e da base de dados
-são sempre a fonte de verdade.
+Os dados atuais devolvidos pelas tools e pela base
+de dados continuam a ser a fonte de verdade.
 
 Se o estado estiver com status "concluida", "erro"
-ou "cancelada" e o utilizador pedir uma nova venda,
-começa uma nova operação usando preparar_venda.
+ou "cancelada" e surgir um novo pedido de venda,
+começa uma nova operação com preparar_venda.
 `;
 }
 
@@ -1055,7 +1128,7 @@ const agente =
 
 
 // ======================================================
-// TIPOS
+// TIPOS DE CONVERSA
 // ======================================================
 
 type ConversaSdk = {
@@ -1104,7 +1177,8 @@ async function listarConversasSdk():
     .order(
       "updated_at",
       {
-        ascending: false,
+        ascending:
+          false,
       },
     );
 
@@ -1212,7 +1286,7 @@ function gerarTitulo(
 
 
 // ======================================================
-// EXTRAIR PRIMEIRA MENSAGEM USER
+// EXTRAIR TEXTO DO UTILIZADOR
 // ======================================================
 
 function extrairTextoUsuario(
@@ -1234,11 +1308,16 @@ function extrairTextoUsuario(
 
 
   if (
-    mensagem.role !== "user"
+    mensagem.role !==
+    "user"
   ) {
     return null;
   }
 
+
+  // ====================================================
+  // STRING
+  // ====================================================
 
   if (
     typeof mensagem.content ===
@@ -1251,6 +1330,10 @@ function extrairTextoUsuario(
     return texto || null;
   }
 
+
+  // ====================================================
+  // ARRAY
+  // ====================================================
 
   if (
     Array.isArray(
@@ -1266,7 +1349,8 @@ function extrairTextoUsuario(
       of mensagem.content
     ) {
       if (
-        typeof parte !== "object" ||
+        typeof parte !==
+          "object" ||
         parte === null
       ) {
         continue;
@@ -1357,7 +1441,9 @@ async function atualizarTitulosAntigos():
       data: itens,
       error: erroItens,
     } = await supabase
-      .from("sdk_session_items")
+      .from(
+        "sdk_session_items",
+      )
       .select(
         "id, item",
       )
@@ -1368,7 +1454,8 @@ async function atualizarTitulosAntigos():
       .order(
         "id",
         {
-          ascending: true,
+          ascending:
+            true,
         },
       );
 
@@ -1478,7 +1565,8 @@ async function atualizarTituloConversa(
       titulo,
 
       updated_at:
-        new Date().toISOString(),
+        new Date()
+          .toISOString(),
     })
     .eq(
       "sdk_session_id",
@@ -1499,7 +1587,8 @@ async function atualizarTituloConversa(
 // ======================================================
 
 async function escolherSessao(
-  rl: readline.Interface,
+  rl:
+    readline.Interface,
 ): Promise<SessaoSelecionada> {
   await atualizarTitulosAntigos();
 
@@ -1508,17 +1597,12 @@ async function escolherSessao(
     await listarConversasSdk();
 
 
-  // ====================================================
-  // NENHUMA CONVERSA
-  // ====================================================
-
   if (
     conversas.length === 0
   ) {
     console.log(
       "Nenhuma conversa anterior encontrada.",
     );
-
 
     console.log(
       "Nova conversa iniciada.\n",
@@ -1535,10 +1619,6 @@ async function escolherSessao(
   }
 
 
-  // ====================================================
-  // MOSTRAR CONVERSAS
-  // ====================================================
-
   console.log(
     "Conversas disponíveis:\n",
   );
@@ -1553,13 +1633,11 @@ async function escolherSessao(
         `${indice + 1} - ${conversa.titulo}`,
       );
 
-
       console.log(
         `    Atualizada: ${formatarData(
           conversa.updated_at,
         )}`,
       );
-
 
       console.log();
     },
@@ -1570,10 +1648,6 @@ async function escolherSessao(
     "N - Nova conversa\n",
   );
 
-
-  // ====================================================
-  // SELEÇÃO
-  // ====================================================
 
   while (true) {
     const escolha =
@@ -1588,9 +1662,9 @@ async function escolherSessao(
         .toLowerCase();
 
 
-    // --------------------------------------------------
-    // NOVA CONVERSA
-    // --------------------------------------------------
+    // ==================================================
+    // NOVA
+    // ==================================================
 
     if (
       opcao === "n"
@@ -1610,9 +1684,9 @@ async function escolherSessao(
     }
 
 
-    // --------------------------------------------------
-    // CONVERSA EXISTENTE
-    // --------------------------------------------------
+    // ==================================================
+    // EXISTENTE
+    // ==================================================
 
     const numero =
       Number(
@@ -1667,7 +1741,7 @@ async function escolherSessao(
 
 
 // ======================================================
-// CARREGAR CONTEXTO DO AGENTE
+// CARREGAR CONTEXTO
 // ======================================================
 
 async function carregarContexto(
@@ -1675,7 +1749,8 @@ async function carregarContexto(
     SupabaseSession,
 ): Promise<AgentCommerceContext> {
   const conversaId =
-    await session.getConversaId();
+    await session
+      .getConversaId();
 
 
   await criarEstadoInicial(
@@ -1704,7 +1779,7 @@ async function carregarContexto(
 
 
 // ======================================================
-// ATUALIZAR STATUS DURANTE APROVAÇÃO
+// ATUALIZAR STATUS DA APROVAÇÃO
 // ======================================================
 
 async function atualizarStatusAprovacao(
@@ -1729,55 +1804,394 @@ async function atualizarStatusAprovacao(
 
 
 // ======================================================
-// MOSTRAR ARGUMENTOS DA INTERRUPÇÃO
+// EXTRAIR ARGUMENTOS DA VENDA
 // ======================================================
 
-function mostrarArgumentosAprovacao(
+function extrairArgumentosVenda(
   argumentos: unknown,
-): void {
+): DadosVendaAprovacao {
+  let valor:
+    unknown =
+    argumentos;
+
+
   if (
-    typeof argumentos ===
+    typeof valor ===
     "string"
   ) {
     try {
-      const dados =
+      valor =
         JSON.parse(
-          argumentos,
+          valor,
         );
-
-
-      console.dir(
-        dados,
-        {
-          depth: null,
-        },
-      );
-
-
-      return;
     }
     catch {
-      console.log(
-        argumentos,
+      throw new Error(
+        "Não foi possível interpretar os dados da venda para aprovação.",
       );
-
-
-      return;
     }
   }
 
 
-  console.dir(
-    argumentos,
-    {
-      depth: null,
-    },
-  );
+  if (
+    typeof valor !==
+      "object" ||
+    valor === null
+  ) {
+    throw new Error(
+      "Os dados da venda para aprovação são inválidos.",
+    );
+  }
+
+
+  const objeto =
+    valor as Record<
+      string,
+      unknown
+    >;
+
+
+  const dados:
+    DadosVendaAprovacao = {};
+
+
+  if (
+    typeof objeto.cliente_id ===
+    "number"
+  ) {
+    dados.cliente_id =
+      objeto.cliente_id;
+  }
+
+
+  if (
+    typeof objeto.produto_id ===
+    "number"
+  ) {
+    dados.produto_id =
+      objeto.produto_id;
+  }
+
+
+  if (
+    typeof objeto.quantidade ===
+    "number"
+  ) {
+    dados.quantidade =
+      objeto.quantidade;
+  }
+
+
+  if (
+    typeof objeto.metodo_pagamento ===
+    "string"
+  ) {
+    dados.metodo_pagamento =
+      objeto.metodo_pagamento;
+  }
+
+
+  return dados;
 }
 
 
 // ======================================================
-// EXECUTAR AGENTE COM HUMAN-IN-THE-LOOP
+// OBTER RESUMO DA VENDA
+// ======================================================
+
+async function obterResumoVendaAprovacao(
+  contexto:
+    AgentCommerceContext,
+
+  argumentos:
+    unknown,
+): Promise<ResumoVendaAprovacao> {
+  const dados =
+    extrairArgumentosVenda(
+      argumentos,
+    );
+
+
+  const clienteId =
+    dados.cliente_id ??
+    contexto.estado.cliente_id;
+
+
+  const produtoId =
+    dados.produto_id ??
+    contexto.estado.produto_id;
+
+
+  const quantidade =
+    dados.quantidade ??
+    contexto.estado.quantidade;
+
+
+  const metodoPagamento =
+    dados.metodo_pagamento ??
+    contexto.estado.metodo_pagamento;
+
+
+  // ====================================================
+  // VALIDAR DADOS
+  // ====================================================
+
+  if (!clienteId) {
+    throw new Error(
+      "Não foi possível identificar o cliente da venda.",
+    );
+  }
+
+
+  if (!produtoId) {
+    throw new Error(
+      "Não foi possível identificar o produto da venda.",
+    );
+  }
+
+
+  if (
+    !quantidade ||
+    quantidade <= 0
+  ) {
+    throw new Error(
+      "Quantidade da venda inválida.",
+    );
+  }
+
+
+  if (!metodoPagamento) {
+    throw new Error(
+      "Método de pagamento não identificado.",
+    );
+  }
+
+
+  // ====================================================
+  // BUSCAR NOMES REAIS NA BASE DE DADOS
+  // ====================================================
+
+  const [
+    resultadoCliente,
+    resultadoProduto,
+  ] =
+    await Promise.all([
+      supabase
+        .from("clientes")
+        .select(
+          "id, nome",
+        )
+        .eq(
+          "id",
+          clienteId,
+        )
+        .maybeSingle(),
+
+      supabase
+        .from("produtos")
+        .select(
+          `
+          id,
+          nome,
+          preco,
+          moeda
+          `,
+        )
+        .eq(
+          "id",
+          produtoId,
+        )
+        .maybeSingle(),
+    ]);
+
+
+  // ====================================================
+  // CLIENTE
+  // ====================================================
+
+  if (
+    resultadoCliente.error
+  ) {
+    throw new Error(
+      `Erro ao obter cliente para aprovação: ${resultadoCliente.error.message}`,
+    );
+  }
+
+
+  if (
+    !resultadoCliente.data
+  ) {
+    throw new Error(
+      "Cliente da venda não encontrado.",
+    );
+  }
+
+
+  // ====================================================
+  // PRODUTO
+  // ====================================================
+
+  if (
+    resultadoProduto.error
+  ) {
+    throw new Error(
+      `Erro ao obter produto para aprovação: ${resultadoProduto.error.message}`,
+    );
+  }
+
+
+  if (
+    !resultadoProduto.data
+  ) {
+    throw new Error(
+      "Produto da venda não encontrado.",
+    );
+  }
+
+
+  // ====================================================
+  // PREÇO
+  // ====================================================
+
+  const precoConvertido =
+    Number(
+      resultadoProduto.data
+        .preco,
+    );
+
+
+  const precoUnitario =
+    Number.isFinite(
+      precoConvertido,
+    )
+      ? precoConvertido
+      : null;
+
+
+  const moeda =
+    resultadoProduto.data
+      .moeda ??
+    "MZN";
+
+
+  const total =
+    precoUnitario !== null
+      ? precoUnitario *
+        quantidade
+      : null;
+
+
+  return {
+    clienteNome:
+      resultadoCliente.data
+        .nome,
+
+    produtoNome:
+      resultadoProduto.data
+        .nome,
+
+    quantidade,
+
+    metodoPagamento,
+
+    precoUnitario,
+
+    moeda,
+
+    total,
+  };
+}
+
+
+// ======================================================
+// FORMATAR DINHEIRO
+// ======================================================
+
+function formatarDinheiro(
+  valor:
+    number,
+
+  moeda:
+    string,
+): string {
+  try {
+    return new Intl.NumberFormat(
+      "pt-MZ",
+      {
+        style:
+          "currency",
+
+        currency:
+          moeda,
+
+        minimumFractionDigits:
+          2,
+      },
+    ).format(
+      valor,
+    );
+  }
+  catch {
+    return `${valor.toFixed(
+      2,
+    )} ${moeda}`;
+  }
+}
+
+
+// ======================================================
+// MOSTRAR APROVAÇÃO
+// ======================================================
+
+function mostrarResumoAprovacao(
+  resumo:
+    ResumoVendaAprovacao,
+): void {
+  console.log(`
+===================================
+       APROVAÇÃO NECESSÁRIA
+===================================
+
+Dados da venda:
+
+Cliente: ${resumo.clienteNome}
+Produto: ${resumo.produtoNome}
+Quantidade: ${resumo.quantidade}
+Método de pagamento: ${resumo.metodoPagamento}`);
+
+
+  if (
+    resumo.precoUnitario !==
+    null
+  ) {
+    console.log(
+      `Preço unitário: ${formatarDinheiro(
+        resumo.precoUnitario,
+        resumo.moeda,
+      )}`,
+    );
+  }
+
+
+  if (
+    resumo.total !==
+    null
+  ) {
+    console.log(
+      `Total: ${formatarDinheiro(
+        resumo.total,
+        resumo.moeda,
+      )}`,
+    );
+  }
+
+
+  console.log();
+}
+
+
+// ======================================================
+// EXECUTAR COM APROVAÇÃO HUMANA
 // ======================================================
 
 async function executarComAprovacao(
@@ -1811,15 +2225,12 @@ async function executarComAprovacao(
 
 
   // ====================================================
-  // TRATAR INTERRUPÇÕES
+  // ENQUANTO EXISTIREM INTERRUPÇÕES
   // ====================================================
 
   while (
-    (
-      resultado.interruptions
-        ?.length ??
-      0
-    ) > 0
+    resultado.interruptions
+      .length > 0
   ) {
     const interrupcoes =
       resultado.interruptions;
@@ -1830,7 +2241,7 @@ async function executarComAprovacao(
       of interrupcoes
     ) {
       // ================================================
-      // MARCAR ESTADO
+      // ESTADO
       // ================================================
 
       await atualizarStatusAprovacao(
@@ -1840,36 +2251,27 @@ async function executarComAprovacao(
 
 
       // ================================================
-      // MOSTRAR APROVAÇÃO
+      // BUSCAR DADOS HUMANOS DA VENDA
       // ================================================
 
-      console.log(`
-===================================
-       APROVAÇÃO NECESSÁRIA
-===================================
-`);
-
-
-      console.log(
-        `Tool: ${interruption.name}`,
-      );
-
-
-      console.log(
-        "\nArgumentos:",
-      );
-
-
-      mostrarArgumentosAprovacao(
-        interruption.arguments,
-      );
-
-
-      console.log();
+      const resumo =
+        await obterResumoVendaAprovacao(
+          contexto,
+          interruption.arguments,
+        );
 
 
       // ================================================
-      // ESPERAR DECISÃO HUMANA
+      // MOSTRAR NOMES, NÃO IDs
+      // ================================================
+
+      mostrarResumoAprovacao(
+        resumo,
+      );
+
+
+      // ================================================
+      // PERGUNTAR
       // ================================================
 
       let decidido =
@@ -1879,7 +2281,7 @@ async function executarComAprovacao(
       while (!decidido) {
         const resposta =
           await rl.question(
-            "Confirmar operação? (s/n): ",
+            "Confirmar venda? (s/n): ",
           );
 
 
@@ -1909,7 +2311,7 @@ async function executarComAprovacao(
 
 
           console.log(
-            "\nOperação aprovada.",
+            "\nVenda aprovada.\n",
           );
 
 
@@ -1936,13 +2338,13 @@ async function executarComAprovacao(
             interruption,
             {
               message:
-                "A operação foi rejeitada pelo utilizador e deve ser considerada cancelada.",
+                "A venda foi rejeitada pelo utilizador. A operação deve ser considerada cancelada.",
             },
           );
 
 
           console.log(
-            "\nOperação rejeitada.",
+            "\nVenda rejeitada.\n",
           );
 
 
@@ -1951,7 +2353,7 @@ async function executarComAprovacao(
         }
 
         // ==============================================
-        // RESPOSTA INVÁLIDA
+        // INVÁLIDO
         // ==============================================
 
         else {
@@ -1964,7 +2366,7 @@ async function executarComAprovacao(
 
 
     // ==================================================
-    // RETOMAR EXATAMENTE O RUN INTERROMPIDO
+    // RETOMAR O MESMO RUN
     // ==================================================
 
     resultado =
@@ -2020,7 +2422,7 @@ async function main() {
 
 
   // ====================================================
-  // CRIAR SUPABASE SESSION
+  // SESSION
   // ====================================================
 
   const session =
@@ -2040,7 +2442,7 @@ Escreve "sair" para terminar.
 
 
   // ====================================================
-  // CONVERSATION LOOP
+  // LOOP DA CONVERSA
   // ====================================================
 
   while (true) {
@@ -2054,18 +2456,18 @@ Escreve "sair" para terminar.
       mensagem.trim();
 
 
-    // --------------------------------------------------
-    // IGNORAR VAZIO
-    // --------------------------------------------------
+    // ==================================================
+    // VAZIO
+    // ==================================================
 
     if (!texto) {
       continue;
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // SAIR
-    // --------------------------------------------------
+    // ==================================================
 
     if (
       texto.toLowerCase() ===
@@ -2085,7 +2487,8 @@ Escreve "sair" para terminar.
       // ================================================
 
       if (novaConversa) {
-        await session.getSessionId();
+        await session
+          .getSessionId();
 
 
         await atualizarTituloConversa(
@@ -2100,7 +2503,7 @@ Escreve "sair" para terminar.
 
 
       // ================================================
-      // CARREGAR AGENT STATE
+      // CONTEXTO
       // ================================================
 
       const contexto =
@@ -2110,7 +2513,7 @@ Escreve "sair" para terminar.
 
 
       // ================================================
-      // EXECUTAR COM APROVAÇÃO
+      // RUN + HUMAN IN THE LOOP
       // ================================================
 
       const resultado =
