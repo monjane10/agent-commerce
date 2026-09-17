@@ -1,13 +1,30 @@
 import { supabase } from "../lib/supabase.js";
 
+import {
+  prepararTermosBusca,
+} from "../utils/busca.js";
+
 export async function consultarStock(
   produto: string,
 ) {
-  const { data, error } = await supabase
+  const termos =
+    prepararTermosBusca(produto);
+
+  let query = supabase
     .from("produtos")
-    .select("id, nome, quantidade")
-    .ilike("nome", `%${produto}%`)
-    .limit(1);
+    .select(
+      "id, nome, quantidade",
+    );
+
+  for (const termo of termos) {
+    query = query.ilike(
+      "nome",
+      `%${termo}%`,
+    );
+  }
+
+  const { data, error } =
+    await query.limit(1);
 
   if (error) {
     throw new Error(
@@ -15,18 +32,22 @@ export async function consultarStock(
     );
   }
 
-  const produtoEncontrado = data?.[0];
+  const produtoEncontrado =
+    data?.[0];
 
   if (!produtoEncontrado) {
     return {
       encontrado: false,
-      mensagem: "Produto não encontrado",
+      mensagem:
+        "Produto não encontrado",
     };
   }
 
   return {
     encontrado: true,
-    produto: produtoEncontrado.nome,
-    quantidade: produtoEncontrado.quantidade,
+    produto:
+      produtoEncontrado.nome,
+    quantidade:
+      produtoEncontrado.quantidade,
   };
 }
