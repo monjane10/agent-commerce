@@ -112,78 +112,93 @@ async function executarTool(
 }
 
 async function main() {
-const pergunta =
-  "Quais produtos temos disponíveis?";
+  const pergunta =
+    "Quanto custam as luvas de boxe e quantas caneleiras temos em stock?";
 
   console.log("\nUtilizador:");
   console.log(pergunta);
 
-  const response =
-    await openai.responses.create({
+  // Primeira chamada ao modelo
+  let response = await openai.responses.create({
+    model: process.env.OPENAI_MODEL!,
+    input: pergunta,
+    tools,
+    tool_choice: "auto",
+  });
+
+  // Proteção para evitar loops infinitos
+  const MAX_ITERACOES = 10;
+
+  for (let iteracao = 1; iteracao <= MAX_ITERACOES; iteracao++) {
+    console.log(`\n--- Iteração ${iteracao} ---`);
+
+    // Procurar TODAS as tool calls pedidas pelo modelo
+    const toolCalls = response.output.filter(
+      (item) => item.type === "function_call",
+    );
+
+    // Se não pediu nenhuma tool, terminou
+    if (toolCalls.length === 0) {
+      console.log("\nAssistente:");
+      console.log(response.output_text);
+      return;
+    }
+
+    console.log(
+      `\nO modelo pediu ${toolCalls.length} tool(s).`,
+    );
+
+    const toolOutputs: Array<{
+      type: "function_call_output";
+      call_id: string;
+      output: string;
+    }> = [];
+
+    // Executar todas as tools solicitadas
+    for (const toolCall of toolCalls) {
+      if (toolCall.type !== "function_call") {
+        continue;
+      }
+
+      console.log("\nTool escolhida:");
+      console.log(toolCall.name);
+
+      const argumentos = JSON.parse(
+        toolCall.arguments,
+      );
+
+      console.log("Argumentos:");
+      console.log(argumentos);
+
+      const resultado = await executarTool(
+        toolCall.name,
+        argumentos,
+      );
+
+      console.log("Resultado:");
+      console.log(resultado);
+
+      // Guardamos o resultado para devolver ao modelo
+      toolOutputs.push({
+        type: "function_call_output",
+        call_id: toolCall.call_id,
+        output: JSON.stringify(resultado),
+      });
+    }
+
+    // Devolver os resultados das tools ao modelo
+    response = await openai.responses.create({
       model: process.env.OPENAI_MODEL!,
-
-      input: pergunta,
-
+      previous_response_id: response.id,
       tools,
-
       tool_choice: "auto",
+      input: toolOutputs,
     });
-
-  const toolCall = response.output.find(
-    (item) => item.type === "function_call",
-  );
-
-  if (
-    !toolCall ||
-    toolCall.type !== "function_call"
-  ) {
-    console.log("\nAssistente:");
-    console.log(response.output_text);
-
-    return;
   }
 
-  console.log("\nTool escolhida:");
-  console.log(toolCall.name);
-
-  const argumentos = JSON.parse(
-    toolCall.arguments,
+  throw new Error(
+    "O agente atingiu o limite máximo de iterações.",
   );
-
-  console.log("\nArgumentos:");
-  console.log(argumentos);
-
-  const resultado = await executarTool(
-    toolCall.name,
-    argumentos,
-  );
-
-  console.log("\nResultado da Tool:");
-  console.log(resultado);
-
-  const finalResponse =
-    await openai.responses.create({
-      model: process.env.OPENAI_MODEL!,
-
-      previous_response_id: response.id,
-
-      tools,
-
-      input: [
-        {
-          type: "function_call_output",
-
-          call_id: toolCall.call_id,
-
-          output: JSON.stringify(resultado),
-        },
-      ],
-    });
-
-  console.log("\nAssistente:");
-  console.log(finalResponse.output_text);
 }
-
-
 
 main();
