@@ -2,7 +2,6 @@ import "dotenv/config";
 
 import {
   Agent,
-  MemorySession,
   run,
   tool,
 } from "@openai/agents";
@@ -15,6 +14,10 @@ import {
   stdin as input,
   stdout as output,
 } from "node:process";
+
+import {
+  randomUUID,
+} from "node:crypto";
 
 import {
   consultarStock,
@@ -32,6 +35,14 @@ import {
 import {
   criarVenda,
 } from "../tools/vendas.js";
+
+import {
+  supabase,
+} from "../lib/supabase.js";
+
+import {
+  SupabaseSession,
+} from "./supabase-session.js";
 
 
 // ======================================================
@@ -459,14 +470,228 @@ REGRAS GERAIS
 
 
 // ======================================================
-// MEMORY SESSION
+// TIPO DE CONVERSA SDK
 // ======================================================
 
-const session =
-  new MemorySession({
-    sessionId:
-      "agent-commerce-terminal",
-  });
+type ConversaSdk = {
+  id: number;
+
+  titulo: string;
+
+  sdk_session_id: string;
+
+  created_at: string;
+
+  updated_at: string;
+};
+
+
+// ======================================================
+// BUSCAR ÚLTIMA CONVERSA SDK
+// ======================================================
+
+async function buscarUltimaConversaSdk():
+  Promise<ConversaSdk | null> {
+
+  const {
+    data,
+    error,
+  } = await supabase
+    .from("conversas")
+    .select(`
+      id,
+      titulo,
+      sdk_session_id,
+      created_at,
+      updated_at
+    `)
+    .not(
+      "sdk_session_id",
+      "is",
+      null,
+    )
+    .order(
+      "updated_at",
+      {
+        ascending: false,
+      },
+    )
+    .limit(1);
+
+
+  if (error) {
+    throw new Error(
+      `Erro ao procurar conversa: ${error.message}`,
+    );
+  }
+
+
+  const conversa =
+    data?.[0];
+
+
+  if (
+    !conversa ||
+    !conversa.sdk_session_id
+  ) {
+    return null;
+  }
+
+
+  return {
+    id:
+      conversa.id,
+
+    titulo:
+      conversa.titulo,
+
+    sdk_session_id:
+      conversa.sdk_session_id,
+
+    created_at:
+      conversa.created_at,
+
+    updated_at:
+      conversa.updated_at,
+  };
+}
+
+
+// ======================================================
+// GERAR NOVO SESSION ID
+// ======================================================
+
+function gerarSessionId():
+  string {
+
+  return (
+    `agent-commerce-${randomUUID()}`
+  );
+}
+
+
+// ======================================================
+// ESCOLHER SESSÃO
+// ======================================================
+
+async function escolherSessionId(
+  rl: readline.Interface,
+): Promise<string> {
+
+  const ultimaConversa =
+    await buscarUltimaConversaSdk();
+
+
+  // ====================================================
+  // NÃO EXISTE CONVERSA ANTERIOR
+  // ====================================================
+
+  if (!ultimaConversa) {
+    const novaSessionId =
+      gerarSessionId();
+
+
+    console.log(
+      "Nenhuma conversa anterior encontrada.",
+    );
+
+    console.log(
+      "Nova conversa iniciada.\n",
+    );
+
+
+    return novaSessionId;
+  }
+
+
+  // ====================================================
+  // EXISTE CONVERSA ANTERIOR
+  // ====================================================
+
+  console.log(
+    "Encontrei uma conversa anterior:\n",
+  );
+
+
+  console.log(
+    `ID: ${ultimaConversa.id}`,
+  );
+
+
+  console.log(
+    `Título: ${ultimaConversa.titulo}`,
+  );
+
+
+  console.log(
+    `Sessão: ${ultimaConversa.sdk_session_id}`,
+  );
+
+
+  console.log(`
+1 - Continuar conversa
+2 - Nova conversa
+`);
+
+
+  while (true) {
+    const escolha =
+      await rl.question(
+        "Escolha uma opção: ",
+      );
+
+
+    const opcao =
+      escolha.trim();
+
+
+    // ==================================================
+    // CONTINUAR CONVERSA
+    // ==================================================
+
+    if (opcao === "1") {
+      console.log(
+        "\nConversa anterior carregada.\n",
+      );
+
+
+      return (
+        ultimaConversa.sdk_session_id
+      );
+    }
+
+
+    // ==================================================
+    // NOVA CONVERSA
+    // ==================================================
+
+    if (opcao === "2") {
+      const novaSessionId =
+        gerarSessionId();
+
+
+      console.log(
+        "\nNova conversa iniciada.\n",
+      );
+
+
+      return novaSessionId;
+    }
+
+
+    // ==================================================
+    // OPÇÃO INVÁLIDA
+    // ==================================================
+
+    console.log(
+      "\nOpção inválida.",
+    );
+
+    console.log(
+      "Escolha 1 ou 2.\n",
+    );
+  }
+}
 
 
 // ======================================================
@@ -485,12 +710,42 @@ async function main() {
 ===================================
     AGENT COMMERCE - AGENTS SDK
 ===================================
+`);
 
-Sessão iniciada.
 
+  // ====================================================
+  // ESCOLHER CONVERSA
+  // ====================================================
+
+  const sessionId =
+    await escolherSessionId(
+      rl,
+    );
+
+
+  // ====================================================
+  // CRIAR SUPABASE SESSION
+  // ====================================================
+
+  const session =
+    new SupabaseSession({
+      sessionId,
+    });
+
+
+  console.log(
+    `Sessão ativa: ${sessionId}`,
+  );
+
+
+  console.log(`
 Escreve "sair" para terminar.
 `);
 
+
+  // ====================================================
+  // CONVERSATION LOOP
+  // ====================================================
 
   while (true) {
     const mensagem =
@@ -504,7 +759,7 @@ Escreve "sair" para terminar.
 
 
     // --------------------------------------------------
-    // IGNORAR MENSAGEM VAZIA
+    // IGNORAR TEXTO VAZIO
     // --------------------------------------------------
 
     if (!texto) {
@@ -513,7 +768,7 @@ Escreve "sair" para terminar.
 
 
     // --------------------------------------------------
-    // TERMINAR CONVERSA
+    // SAIR
     // --------------------------------------------------
 
     if (
@@ -551,9 +806,11 @@ Escreve "sair" para terminar.
         "\nAssistente:",
       );
 
+
       console.log(
         resultado.finalOutput,
       );
+
 
       console.log();
     }
@@ -562,9 +819,11 @@ Escreve "sair" para terminar.
         "\nErro ao processar mensagem:",
       );
 
+
       console.error(
         error,
       );
+
 
       console.log();
     }
@@ -585,9 +844,11 @@ main().catch(
       "\nErro fatal:",
     );
 
+
     console.error(
       error,
     );
+
 
     process.exit(1);
   },
