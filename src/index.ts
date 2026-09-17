@@ -26,6 +26,12 @@ import {
   buscarUltimaConversa,
 } from "./memory/conversas.js";
 
+import {
+  criarEstadoInicial,
+  obterEstado,
+  atualizarEstado,
+} from "./state/agent-state.js";
+
 
 // ======================================================
 // OPENAI
@@ -37,7 +43,7 @@ const openai = new OpenAI({
 
 
 // ======================================================
-// TOOLS DISPONÍVEIS PARA O AGENTE
+// TOOLS
 // ======================================================
 
 const tools = [
@@ -83,6 +89,7 @@ const tools = [
       properties: {
         nome: {
           type: "string",
+
           description:
             "Nome do produto que deve ser procurado",
         },
@@ -131,6 +138,7 @@ const tools = [
       properties: {
         nome: {
           type: "string",
+
           description:
             "Nome ou parte do nome do cliente",
         },
@@ -203,43 +211,247 @@ const tools = [
 // ======================================================
 
 async function executarTool(
+  conversaId: number,
   nome: string,
   argumentos: Record<string, unknown>,
 ) {
+
   switch (nome) {
 
+    // ==================================================
+    // CONSULTAR STOCK
+    // ==================================================
+
     case "consultar_stock":
+
       return await consultarStock(
         argumentos.produto as string,
       );
 
 
-    case "buscar_produto":
-      return await buscarProduto(
-        argumentos.nome as string,
-      );
+    // ==================================================
+    // BUSCAR PRODUTO
+    // ==================================================
 
+    case "buscar_produto": {
+
+      const resultado =
+        await buscarProduto(
+          argumentos.nome as string,
+        );
+
+
+      if (
+        resultado.encontrado &&
+        resultado.produto
+      ) {
+
+        await atualizarEstado(
+          conversaId,
+          {
+            status:
+              "produto_identificado",
+
+            produto_id:
+              resultado.produto.id,
+
+            produto_nome:
+              resultado.produto.nome,
+          },
+        );
+      }
+
+
+      return resultado;
+    }
+
+
+    // ==================================================
+    // LISTAR PRODUTOS
+    // ==================================================
 
     case "listar_produtos":
+
       return await listarProdutos();
 
 
-    case "buscar_cliente":
-      return await buscarCliente(
-        argumentos.nome as string,
+    // ==================================================
+    // BUSCAR CLIENTE
+    // ==================================================
+
+    case "buscar_cliente": {
+
+      const resultado =
+        await buscarCliente(
+          argumentos.nome as string,
+        );
+
+
+      if (
+        resultado.encontrado &&
+        resultado.clientes
+      ) {
+
+        // ==============================================
+        // APENAS UM CLIENTE ENCONTRADO
+        // ==============================================
+
+        if (
+          resultado.clientes.length === 1
+        ) {
+
+          const cliente =
+            resultado.clientes[0];
+
+
+          if (cliente) {
+
+            await atualizarEstado(
+              conversaId,
+              {
+                operacao:
+                  "criar_venda",
+
+                status:
+                  "cliente_identificado",
+
+                cliente_id:
+                  cliente.id,
+
+                cliente_nome:
+                  cliente.nome,
+              },
+            );
+          }
+
+        } else {
+
+          // ============================================
+          // MAIS DE UM CLIENTE ENCONTRADO
+          // ============================================
+
+          await atualizarEstado(
+            conversaId,
+            {
+              operacao:
+                "criar_venda",
+
+              status:
+                "aguardando_cliente",
+
+              cliente_id:
+                null,
+
+              cliente_nome:
+                null,
+            },
+          );
+        }
+      }
+
+
+      return resultado;
+    }
+
+
+    // ==================================================
+    // CRIAR VENDA
+    // ==================================================
+
+    case "criar_venda": {
+
+      // ================================================
+      // MARCAR OPERAÇÃO COMO EM EXECUÇÃO
+      // ================================================
+
+      await atualizarEstado(
+        conversaId,
+        {
+          operacao:
+            "criar_venda",
+
+          status:
+            "executando_venda",
+
+          cliente_id:
+            argumentos.cliente_id as number,
+
+          produto_id:
+            argumentos.produto_id as number,
+
+          quantidade:
+            argumentos.quantidade as number,
+
+          metodo_pagamento:
+            argumentos.metodo_pagamento as string,
+        },
       );
 
 
-    case "criar_venda":
-      return await criarVenda(
-        argumentos.cliente_id as number,
-        argumentos.produto_id as number,
-        argumentos.quantidade as number,
-        argumentos.metodo_pagamento as string,
-      );
+      // ================================================
+      // CRIAR VENDA REAL
+      // ================================================
+
+      const resultado =
+        await criarVenda(
+          argumentos.cliente_id as number,
+          argumentos.produto_id as number,
+          argumentos.quantidade as number,
+          argumentos.metodo_pagamento as string,
+        );
+
+
+      const resultadoVenda =
+        resultado as Record<
+          string,
+          unknown
+        >;
+
+
+      // ================================================
+      // VENDA COM SUCESSO
+      // ================================================
+
+      if (
+        resultadoVenda.sucesso === true
+      ) {
+
+        await atualizarEstado(
+          conversaId,
+          {
+            status:
+              "concluida",
+
+            cliente_nome:
+              resultadoVenda.cliente as string,
+
+            produto_nome:
+              resultadoVenda.produto as string,
+          },
+        );
+
+      } else {
+
+        // ==============================================
+        // ERRO NA VENDA
+        // ==============================================
+
+        await atualizarEstado(
+          conversaId,
+          {
+            status:
+              "erro",
+          },
+        );
+      }
+
+
+      return resultado;
+    }
 
 
     default:
+
       throw new Error(
         `Tool desconhecida: ${nome}`,
       );
@@ -248,7 +460,7 @@ async function executarTool(
 
 
 // ======================================================
-// INSTRUÇÕES DO AGENTE
+// INSTRUÇÕES BASE DO AGENTE
 // ======================================================
 
 const INSTRUCOES = `
@@ -272,7 +484,11 @@ REGRAS:
 - Se forem encontrados vários clientes com nomes
   semelhantes, não escolhas um deles sozinho.
 
-- Nesse caso, pergunta ao utilizador qual é o cliente correto.
+- Pergunta ao utilizador qual é o cliente correto.
+
+- Quando o utilizador escolher um cliente depois de
+  uma situação ambígua, usa buscar_cliente novamente
+  com o nome completo antes de criar a venda.
 
 - Se o cliente não existir, não cries a venda.
 
@@ -296,6 +512,38 @@ REGRAS:
 
 
 // ======================================================
+// CONSTRUIR INSTRUÇÕES COM AGENT STATE
+// ======================================================
+
+function construirInstrucoesComEstado(
+  estado: unknown,
+) {
+
+  return `
+${INSTRUCOES}
+
+========================================================
+ESTADO ATUAL DA TAREFA
+========================================================
+
+${JSON.stringify(
+  estado,
+  null,
+  2,
+)}
+
+Usa o estado apenas como contexto adicional.
+
+Os dados obtidos diretamente pelas tools são sempre
+a fonte de verdade.
+
+Nunca inventes dados que não estejam no estado,
+na mensagem do utilizador ou no resultado das tools.
+`;
+}
+
+
+// ======================================================
 // PROCESSAR UMA MENSAGEM
 // ======================================================
 
@@ -304,6 +552,16 @@ async function processarMensagem(
   mensagem: string,
   previousResponseId?: string,
 ): Promise<string> {
+
+
+  // ====================================================
+  // GARANTIR QUE EXISTE ESTADO PARA ESTA CONVERSA
+  // ====================================================
+
+  await criarEstadoInicial(
+    conversaId,
+  );
+
 
   // ====================================================
   // GUARDAR MENSAGEM DO UTILIZADOR
@@ -317,6 +575,22 @@ async function processarMensagem(
 
 
   // ====================================================
+  // CARREGAR ESTADO ATUAL
+  // ====================================================
+
+  let estadoAtual =
+    await obterEstado(
+      conversaId,
+    );
+
+
+  let instrucoesComEstado =
+    construirInstrucoesComEstado(
+      estadoAtual,
+    );
+
+
+  // ====================================================
   // PRIMEIRA CHAMADA AO MODELO
   // ====================================================
 
@@ -327,7 +601,7 @@ async function processarMensagem(
         process.env.OPENAI_MODEL!,
 
       instructions:
-        INSTRUCOES,
+        instrucoesComEstado,
 
       input:
         mensagem,
@@ -350,7 +624,7 @@ async function processarMensagem(
 
 
   // ====================================================
-  // PROTEÇÃO CONTRA LOOP INFINITO
+  // PROTEÇÃO CONTRA LOOPS INFINITOS
   // ====================================================
 
   const MAX_ITERACOES = 10;
@@ -372,7 +646,7 @@ async function processarMensagem(
 
 
     // ==================================================
-    // ENCONTRAR FUNCTION CALLS
+    // ENCONTRAR TOOL CALLS
     // ==================================================
 
     const toolCalls =
@@ -383,10 +657,12 @@ async function processarMensagem(
 
 
     // ==================================================
-    // SE NÃO EXISTEM TOOLS, TEMOS A RESPOSTA FINAL
+    // SEM TOOL CALL = RESPOSTA FINAL
     // ==================================================
 
-    if (toolCalls.length === 0) {
+    if (
+      toolCalls.length === 0
+    ) {
 
       const respostaFinal =
         response.output_text ||
@@ -397,13 +673,14 @@ async function processarMensagem(
         "\nAssistente:",
       );
 
+
       console.log(
         respostaFinal,
       );
 
 
       // ================================================
-      // GUARDAR RESPOSTA DO ASSISTENTE
+      // GUARDAR RESPOSTA
       // ================================================
 
       await guardarMensagem(
@@ -414,7 +691,7 @@ async function processarMensagem(
 
 
       // ================================================
-      // GUARDAR O ÚLTIMO RESPONSE ID
+      // GUARDAR RESPONSE ID
       // ================================================
 
       await atualizarResponseId(
@@ -433,7 +710,7 @@ async function processarMensagem(
 
 
     // ==================================================
-    // PREPARAR RESULTADOS DAS TOOLS
+    // RESULTADOS DAS TOOLS
     // ==================================================
 
     const toolOutputs: Array<{
@@ -444,13 +721,16 @@ async function processarMensagem(
 
 
     // ==================================================
-    // EXECUTAR TODAS AS TOOLS
+    // EXECUTAR TOOLS
     // ==================================================
 
-    for (const toolCall of toolCalls) {
+    for (
+      const toolCall of toolCalls
+    ) {
 
       if (
-        toolCall.type !== "function_call"
+        toolCall.type !==
+        "function_call"
       ) {
         continue;
       }
@@ -459,6 +739,7 @@ async function processarMensagem(
       console.log(
         "\nTool escolhida:",
       );
+
 
       console.log(
         toolCall.name,
@@ -482,17 +763,19 @@ async function processarMensagem(
         "Argumentos:",
       );
 
+
       console.log(
         argumentos,
       );
 
 
       // ================================================
-      // EXECUTAR TOOL REAL
+      // EXECUTAR TOOL
       // ================================================
 
       const resultado =
         await executarTool(
+          conversaId,
           toolCall.name,
           argumentos,
         );
@@ -502,13 +785,14 @@ async function processarMensagem(
         "Resultado:",
       );
 
+
       console.log(
         resultado,
       );
 
 
       // ================================================
-      // GUARDAR RESULTADO PARA ENVIAR AO MODELO
+      // GUARDAR RESULTADO PARA O MODELO
       // ================================================
 
       toolOutputs.push({
@@ -528,6 +812,22 @@ async function processarMensagem(
 
 
     // ==================================================
+    // RECARREGAR ESTADO DEPOIS DAS TOOLS
+    // ==================================================
+
+    estadoAtual =
+      await obterEstado(
+        conversaId,
+      );
+
+
+    instrucoesComEstado =
+      construirInstrucoesComEstado(
+        estadoAtual,
+      );
+
+
+    // ==================================================
     // DEVOLVER RESULTADOS AO MODELO
     // ==================================================
 
@@ -538,7 +838,7 @@ async function processarMensagem(
           process.env.OPENAI_MODEL!,
 
         instructions:
-          INSTRUCOES,
+          instrucoesComEstado,
 
         previous_response_id:
           response.id,
@@ -590,16 +890,12 @@ async function main() {
 
 
   // ====================================================
-  // PROCURAR ÚLTIMA CONVERSA
+  // BUSCAR ÚLTIMA CONVERSA
   // ====================================================
 
   const ultimaConversa =
     await buscarUltimaConversa();
 
-
-  // ====================================================
-  // ESTADO DA CONVERSA ATUAL
-  // ====================================================
 
   let conversaId:
     number | null = null;
@@ -610,10 +906,12 @@ async function main() {
 
 
   // ====================================================
-  // SE EXISTIR CONVERSA ANTERIOR
+  // CONVERSA EXISTENTE
   // ====================================================
 
-  if (ultimaConversa) {
+  if (
+    ultimaConversa
+  ) {
 
     console.log(
       "Encontrei uma conversa anterior:\n",
@@ -647,7 +945,7 @@ async function main() {
 
 
     // ==================================================
-    // CONTINUAR CONVERSA
+    // CONTINUAR
     // ==================================================
 
     if (
@@ -662,6 +960,15 @@ async function main() {
         ultimaConversa
           .openai_response_id ??
         undefined;
+
+
+      // ================================================
+      // GARANTIR QUE CONVERSAS ANTIGAS TAMBÉM TENHAM STATE
+      // ================================================
+
+      await criarEstadoInicial(
+        conversaId,
+      );
 
 
       console.log(
@@ -699,10 +1006,12 @@ async function main() {
 
 
     // ==================================================
-    // IGNORAR MENSAGEM VAZIA
+    // MENSAGEM VAZIA
     // ==================================================
 
-    if (!mensagemLimpa) {
+    if (
+      !mensagemLimpa
+    ) {
       continue;
     }
 
@@ -732,16 +1041,17 @@ async function main() {
     try {
 
       // ================================================
-      // CRIAR NOVA CONVERSA
+      // CRIAR CONVERSA
       // ================================================
 
-      if (conversaId === null) {
+      if (
+        conversaId === null
+      ) {
 
         let titulo =
           mensagemLimpa;
 
 
-        // Limitar tamanho do título
         if (
           titulo.length > 60
         ) {
@@ -764,8 +1074,19 @@ async function main() {
           novaConversa.id;
 
 
-        // Como é nova conversa,
-        // não existe response anterior
+        // ==============================================
+        // CRIAR AGENT STATE
+        // ==============================================
+
+        await criarEstadoInicial(
+          conversaId,
+        );
+
+
+        // ==============================================
+        // NOVA CONVERSA NÃO TEM RESPONSE ANTERIOR
+        // ==============================================
+
         previousResponseId =
           undefined;
 
@@ -782,11 +1103,8 @@ async function main() {
 
       previousResponseId =
         await processarMensagem(
-
           conversaId,
-
           mensagemLimpa,
-
           previousResponseId,
         );
 
@@ -823,28 +1141,30 @@ async function main() {
 // INICIAR APLICAÇÃO
 // ======================================================
 
-main().catch((error) => {
-
-  console.error(
-    "\nErro fatal ao iniciar aplicação:",
-  );
-
-
-  if (
-    error instanceof Error
-  ) {
+main().catch(
+  (error) => {
 
     console.error(
-      error.message,
+      "\nErro fatal ao iniciar aplicação:",
     );
 
-  } else {
 
-    console.error(
-      error,
-    );
-  }
+    if (
+      error instanceof Error
+    ) {
+
+      console.error(
+        error.message,
+      );
+
+    } else {
+
+      console.error(
+        error,
+      );
+    }
 
 
-  process.exit(1);
-});
+    process.exit(1);
+  },
+);
