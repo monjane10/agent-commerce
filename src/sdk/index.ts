@@ -2,13 +2,23 @@ import "dotenv/config";
 
 import {
   Agent,
+  MemorySession,
   run,
   tool,
 } from "@openai/agents";
 
 import { z } from "zod";
 
-import { consultarStock } from "../tools/stock.js";
+import readline from "node:readline/promises";
+
+import {
+  stdin as input,
+  stdout as output,
+} from "node:process";
+
+import {
+  consultarStock,
+} from "../tools/stock.js";
 
 import {
   buscarProduto,
@@ -38,7 +48,9 @@ const consultarStockTool = tool({
     produto: z.string(),
   }),
 
-  execute: async ({ produto }) => {
+  execute: async ({
+    produto,
+  }) => {
     console.log(
       "\nTool executada:",
     );
@@ -90,7 +102,9 @@ const buscarProdutoTool = tool({
     nome: z.string(),
   }),
 
-  execute: async ({ nome }) => {
+  execute: async ({
+    nome,
+  }) => {
     console.log(
       "\nTool executada:",
     );
@@ -182,7 +196,9 @@ const buscarClienteTool = tool({
     nome: z.string(),
   }),
 
-  execute: async ({ nome }) => {
+  execute: async ({
+    nome,
+  }) => {
     console.log(
       "\nTool executada:",
     );
@@ -246,8 +262,8 @@ const criarVendaTool = tool({
       .int()
       .positive(),
 
-    metodo_pagamento: z
-      .string(),
+    metodo_pagamento:
+      z.string(),
   }),
 
   execute: async ({
@@ -304,7 +320,8 @@ const criarVendaTool = tool({
 // ======================================================
 
 const agente = new Agent({
-  name: "Agente Comercial",
+  name:
+    "Agente Comercial",
 
   model:
     process.env.OPENAI_MODEL!,
@@ -354,6 +371,10 @@ CLIENTES
 - Nesse caso, apresenta as opções encontradas e pede
   ao utilizador para indicar qual é o cliente correto.
 
+- Se o utilizador posteriormente indicar um cliente
+  específico depois de uma pesquisa ambígua, usa
+  buscar_cliente novamente com o nome completo.
+
 ========================================================
 VENDAS
 ========================================================
@@ -393,6 +414,26 @@ VENDAS
   operação foi concluída ou se ocorreu algum erro.
 
 ========================================================
+CONTEXTO DA CONVERSA
+========================================================
+
+- Usa o histórico da conversa para compreender
+  referências como:
+
+  "esse produto"
+  "esse cliente"
+  "dele"
+  "dela"
+  "o mais barato"
+  "o produto anterior"
+
+- Mesmo tendo contexto da conversa, nunca inventes
+  informações que deveriam vir da base de dados.
+
+- Quando precisares de dados atuais do negócio,
+  usa as tools.
+
+========================================================
 REGRAS GERAIS
 ========================================================
 
@@ -418,37 +459,119 @@ REGRAS GERAIS
 
 
 // ======================================================
+// MEMORY SESSION
+// ======================================================
+
+const session =
+  new MemorySession({
+    sessionId:
+      "agent-commerce-terminal",
+  });
+
+
+// ======================================================
 // EXECUÇÃO
 // ======================================================
 
 async function main() {
-  const pergunta =
-    "Regista uma venda de 1 Monitor 24 Polegadas para Maria Alberto, pagamento M-Pesa.";
+  const rl =
+    readline.createInterface({
+      input,
+      output,
+    });
 
 
-  console.log(
-    "\nUtilizador:",
-  );
+  console.log(`
+===================================
+    AGENT COMMERCE - AGENTS SDK
+===================================
 
-  console.log(
-    pergunta,
-  );
+Sessão iniciada.
 
-
-  const resultado =
-    await run(
-      agente,
-      pergunta,
-    );
+Escreve "sair" para terminar.
+`);
 
 
-  console.log(
-    "\nAssistente:",
-  );
+  while (true) {
+    const mensagem =
+      await rl.question(
+        "Você: ",
+      );
 
-  console.log(
-    resultado.finalOutput,
-  );
+
+    const texto =
+      mensagem.trim();
+
+
+    // --------------------------------------------------
+    // IGNORAR MENSAGEM VAZIA
+    // --------------------------------------------------
+
+    if (!texto) {
+      continue;
+    }
+
+
+    // --------------------------------------------------
+    // TERMINAR CONVERSA
+    // --------------------------------------------------
+
+    if (
+      texto.toLowerCase() ===
+      "sair"
+    ) {
+      console.log(
+        "\nConversa terminada.",
+      );
+
+      break;
+    }
+
+
+    try {
+      // ================================================
+      // EXECUTAR AGENTE
+      // ================================================
+
+      const resultado =
+        await run(
+          agente,
+          texto,
+          {
+            session,
+          },
+        );
+
+
+      // ================================================
+      // RESPOSTA FINAL
+      // ================================================
+
+      console.log(
+        "\nAssistente:",
+      );
+
+      console.log(
+        resultado.finalOutput,
+      );
+
+      console.log();
+    }
+    catch (error) {
+      console.error(
+        "\nErro ao processar mensagem:",
+      );
+
+      console.error(
+        error,
+      );
+
+      console.log();
+    }
+  }
+
+
+  rl.close();
 }
 
 
@@ -459,7 +582,10 @@ async function main() {
 main().catch(
   (error) => {
     console.error(
-      "\nErro:",
+      "\nErro fatal:",
+    );
+
+    console.error(
       error,
     );
 
