@@ -231,8 +231,8 @@ REGRAS:
 `;
 
 async function main() {
-  const pergunta =
-  "Regista uma venda de 3 Luvas de Boxe para João, pagamento M-Pesa.";
+const pergunta =
+  "Regista uma venda de 2 Kimonos para Maria.";
 
   console.log("\nUtilizador:");
   console.log(pergunta);
