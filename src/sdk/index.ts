@@ -15,6 +15,10 @@ import {
   listarProdutos,
 } from "../tools/produtos.js";
 
+import {
+  buscarCliente,
+} from "../tools/clientes.js";
+
 
 // ======================================================
 // TOOL 1 - CONSULTAR STOCK
@@ -161,6 +165,58 @@ const listarProdutosTool = tool({
 
 
 // ======================================================
+// TOOL 4 - BUSCAR CLIENTE
+// ======================================================
+
+const buscarClienteTool = tool({
+  name: "buscar_cliente",
+
+  description:
+    "Procura clientes pelo nome e devolve os clientes encontrados com ID, nome e email.",
+
+  parameters: z.object({
+    nome: z.string(),
+  }),
+
+  execute: async ({ nome }) => {
+    console.log(
+      "\nTool executada:",
+    );
+
+    console.log(
+      "buscar_cliente",
+    );
+
+    console.log(
+      "Cliente procurado:",
+    );
+
+    console.log(
+      nome,
+    );
+
+
+    const resultado =
+      await buscarCliente(
+        nome,
+      );
+
+
+    console.log(
+      "Resultado:",
+    );
+
+    console.log(
+      resultado,
+    );
+
+
+    return resultado;
+  },
+});
+
+
+// ======================================================
 // AGENTE
 // ======================================================
 
@@ -171,8 +227,8 @@ const agente = new Agent({
     process.env.OPENAI_MODEL!,
 
   instructions: `
-És um assistente comercial responsável por produtos
-e stock.
+És um assistente comercial responsável por produtos,
+stock e clientes.
 
 Tens ferramentas para consultar informações reais
 do sistema.
@@ -196,6 +252,16 @@ REGRAS:
   todos os produtos, usa listar_produtos e analisa
   os dados devolvidos.
 
+- Se o utilizador perguntar por um cliente ou
+  precisar identificar um cliente, usa
+  buscar_cliente.
+
+- Nunca inventes IDs de clientes.
+
+- Se buscar_cliente devolver vários clientes,
+  apresenta as opções encontradas e pede ao
+  utilizador para indicar qual é o cliente correto.
+
 - Nunca inventes preços ou quantidades.
 
 - Usa sempre os dados devolvidos pelas tools.
@@ -209,6 +275,7 @@ REGRAS:
     consultarStockTool,
     buscarProdutoTool,
     listarProdutosTool,
+    buscarClienteTool,
   ],
 });
 
@@ -218,8 +285,8 @@ REGRAS:
 // ======================================================
 
 async function main() {
- const pergunta =
-  "Qual é o produto mais barato que temos?";
+const pergunta =
+  "Procura o cliente João.";
 
 
   console.log(
