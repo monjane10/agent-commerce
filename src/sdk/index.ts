@@ -19,6 +19,10 @@ import {
   buscarCliente,
 } from "../tools/clientes.js";
 
+import {
+  criarVenda,
+} from "../tools/vendas.js";
+
 
 // ======================================================
 // TOOL 1 - CONSULTAR STOCK
@@ -217,6 +221,85 @@ const buscarClienteTool = tool({
 
 
 // ======================================================
+// TOOL 5 - CRIAR VENDA
+// ======================================================
+
+const criarVendaTool = tool({
+  name: "criar_venda",
+
+  description:
+    "Regista uma venda para um cliente e produto previamente identificados e atualiza o stock.",
+
+  parameters: z.object({
+    cliente_id: z
+      .number()
+      .int()
+      .positive(),
+
+    produto_id: z
+      .number()
+      .int()
+      .positive(),
+
+    quantidade: z
+      .number()
+      .int()
+      .positive(),
+
+    metodo_pagamento: z
+      .string(),
+  }),
+
+  execute: async ({
+    cliente_id,
+    produto_id,
+    quantidade,
+    metodo_pagamento,
+  }) => {
+    console.log(
+      "\nTool executada:",
+    );
+
+    console.log(
+      "criar_venda",
+    );
+
+    console.log(
+      "Dados da venda:",
+    );
+
+    console.log({
+      cliente_id,
+      produto_id,
+      quantidade,
+      metodo_pagamento,
+    });
+
+
+    const resultado =
+      await criarVenda(
+        cliente_id,
+        produto_id,
+        quantidade,
+        metodo_pagamento,
+      );
+
+
+    console.log(
+      "Resultado:",
+    );
+
+    console.log(
+      resultado,
+    );
+
+
+    return resultado;
+  },
+});
+
+
+// ======================================================
 // AGENTE
 // ======================================================
 
@@ -228,12 +311,14 @@ const agente = new Agent({
 
   instructions: `
 És um assistente comercial responsável por produtos,
-stock e clientes.
+stock, clientes e vendas.
 
-Tens ferramentas para consultar informações reais
-do sistema.
+Tens ferramentas para consultar e alterar informações
+reais do sistema.
 
-REGRAS:
+========================================================
+PRODUTOS E STOCK
+========================================================
 
 - Se o utilizador perguntar especificamente pela
   quantidade disponível de um produto, usa
@@ -252,19 +337,70 @@ REGRAS:
   todos os produtos, usa listar_produtos e analisa
   os dados devolvidos.
 
-- Se o utilizador perguntar por um cliente ou
-  precisar identificar um cliente, usa
-  buscar_cliente.
+========================================================
+CLIENTES
+========================================================
+
+- Para identificar um cliente, usa buscar_cliente.
 
 - Nunca inventes IDs de clientes.
 
+- Usa exclusivamente IDs devolvidos pela tool
+  buscar_cliente.
+
 - Se buscar_cliente devolver vários clientes,
-  apresenta as opções encontradas e pede ao
-  utilizador para indicar qual é o cliente correto.
+  não escolhas sozinho.
 
-- Nunca inventes preços ou quantidades.
+- Nesse caso, apresenta as opções encontradas e pede
+  ao utilizador para indicar qual é o cliente correto.
 
-- Usa sempre os dados devolvidos pelas tools.
+========================================================
+VENDAS
+========================================================
+
+- Quando o utilizador pedir para registar uma venda,
+  identifica primeiro o cliente usando
+  buscar_cliente.
+
+- Depois identifica o produto usando
+  buscar_produto.
+
+- Nunca inventes cliente_id.
+
+- Nunca inventes produto_id.
+
+- Usa exclusivamente IDs devolvidos pelas tools.
+
+- Só usa criar_venda depois de ter identificado
+  corretamente o cliente e o produto.
+
+- Usa exatamente a quantidade indicada pelo
+  utilizador.
+
+- Usa o método de pagamento indicado pelo
+  utilizador.
+
+- Se o método de pagamento não tiver sido informado,
+  pede ao utilizador antes de criar a venda.
+
+- Não inventes métodos de pagamento.
+
+- Se houver vários clientes possíveis, não cries
+  a venda até o utilizador esclarecer qual cliente
+  pretende.
+
+- Depois de criar_venda, informa claramente se a
+  operação foi concluída ou se ocorreu algum erro.
+
+========================================================
+REGRAS GERAIS
+========================================================
+
+- Nunca inventes preços, quantidades, stock,
+  clientes ou IDs.
+
+- Usa sempre os dados devolvidos pelas tools como
+  fonte de verdade.
 
 - Os preços estão em Metical (MZN).
 
@@ -276,6 +412,7 @@ REGRAS:
     buscarProdutoTool,
     listarProdutosTool,
     buscarClienteTool,
+    criarVendaTool,
   ],
 });
 
@@ -285,8 +422,8 @@ REGRAS:
 // ======================================================
 
 async function main() {
-const pergunta =
-  "Procura o cliente João.";
+  const pergunta =
+    "Regista uma venda de 1 Monitor 24 Polegadas para Maria Alberto, pagamento M-Pesa.";
 
 
   console.log(
