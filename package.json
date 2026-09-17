@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "sdk": "tsx src/sdk/index.ts"
+    "sdk": "tsx src/index.ts"
   },
   "keywords": [],
   "author": "",
