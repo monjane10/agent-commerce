@@ -1,5 +1,3 @@
-import { run } from "@openai/agents";
-
 import readline from "node:readline/promises";
 
 import {
@@ -27,6 +25,10 @@ import {
 import {
   mostrarResumoAprovacao,
 } from "../../cli/approval-view.js";
+
+import {
+  criarRunner,
+} from "./tracing.js";
 
 
 export async function carregarContexto(
@@ -75,13 +77,22 @@ export async function executarComAprovacao(
 
   contexto:
     AgentCommerceContext,
+
+  sessionId:
+    string,
 ) {
   // ====================================================
   // PRIMEIRA EXECUÇÃO
   // ====================================================
 
+  const runner =
+    criarRunner({
+      sessionId,
+      contexto,
+    });
+
   let resultado =
-    await run(
+    await runner.run(
       agente,
       texto,
       {
@@ -239,7 +250,7 @@ export async function executarComAprovacao(
     // ==================================================
 
     resultado =
-      await run(
+      await runner.run(
         agente,
         resultado.state,
         {

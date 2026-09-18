@@ -2,20 +2,27 @@
 // CONFIGURAÇÃO DE TRACING
 // ======================================================
 
-type CriarTracingOptionsParams = {
+import { Runner } from "@openai/agents";
+
+import type {
+  AgentCommerceContext,
+} from "../context.js";
+
+
+type CriarRunnerParams = {
   sessionId: string;
-  conversaId: number;
+  contexto: AgentCommerceContext;
 };
 
 
 // ======================================================
-// OPÇÕES DE TRACING PARA UM RUN
+// CRIAR RUNNER COM TRACING CONFIGURADO
 // ======================================================
 
-export function criarTracingOptions(
-  params: CriarTracingOptionsParams,
+export function criarRunner(
+  params: CriarRunnerParams,
 ) {
-  return {
+  return new Runner({
     workflowName:
       "Agent Commerce",
 
@@ -29,7 +36,7 @@ export function criarTracingOptions(
 
       conversa_id:
         String(
-          params.conversaId,
+          params.contexto.conversaId,
         ),
 
       interface:
@@ -40,5 +47,5 @@ export function criarTracingOptions(
     // para o trace.
     traceIncludeSensitiveData:
       false,
-  };
+  });
 }

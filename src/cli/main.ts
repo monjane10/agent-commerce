@@ -158,6 +158,7 @@ Escreve "sair" para terminar.
           texto,
           session,
           contexto,
+          sessionId,
         );
 
 
