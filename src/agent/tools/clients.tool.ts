@@ -23,7 +23,7 @@ export const buscarClienteTool = tool({
     "buscar_cliente",
 
   description:
-    "Procura clientes pelo nome e devolve os clientes encontrados com ID, nome e email.",
+    "Identifica clientes pelo nome (para novas vendas). Para histórico de vendas, usar consultar_vendas.",
 
   parameters:
     z.object({

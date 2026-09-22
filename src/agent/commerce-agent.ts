@@ -15,6 +15,7 @@ import {
   buscarClienteTool,
   prepararVendaTool,
   criarVendaTool,
+  consultarVendasTool,
 } from "./tools/index.js";
 
 
@@ -36,5 +37,6 @@ export const agente =
       buscarClienteTool,
       prepararVendaTool,
       criarVendaTool,
+      consultarVendasTool,
     ],
   });

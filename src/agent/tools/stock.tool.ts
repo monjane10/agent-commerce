@@ -12,7 +12,7 @@ export const consultarStockTool = tool({
     "consultar_stock",
 
   description:
-    "Consulta especificamente a quantidade disponível em stock de um produto.",
+    "Quantidade ATUAL em stock de um produto. Não usar para vendas já realizadas.",
 
   parameters:
     z.object({

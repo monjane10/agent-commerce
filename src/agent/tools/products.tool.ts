@@ -24,7 +24,7 @@ export const buscarProdutoTool = tool({
     "buscar_produto",
 
   description:
-    "Procura informações completas de um produto, incluindo nome, preço, moeda e quantidade disponível.",
+    "Dados atuais de um produto (preço, moeda, stock) pelo nome. Não usar para histórico de vendas.",
 
   parameters:
     z.object({

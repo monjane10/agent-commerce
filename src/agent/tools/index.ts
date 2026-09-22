@@ -18,3 +18,7 @@ export {
 export {
   criarVendaTool,
 } from "./create-sale.tool.js";
+
+export {
+  consultarVendasTool,
+} from "./sales.tool.js";
