@@ -1,3 +1,5 @@
+import { performance } from "node:perf_hooks";
+
 import readline from "node:readline/promises";
 
 import {
@@ -29,6 +31,11 @@ import {
 import {
   criarRunner,
 } from "./tracing.js";
+
+import {
+  ativarObservabilidadeLocal,
+  mostrarResumoExecucao,
+} from "./observability.js";
 
 
 export async function carregarContexto(
@@ -91,6 +98,15 @@ export async function executarComAprovacao(
       contexto,
     });
 
+  ativarObservabilidadeLocal(
+    runner,
+  );
+
+  let duracaoAtivaMs = 0;
+
+  let inicioExecucao =
+    performance.now();
+
   let resultado =
     await runner.run(
       agente,
@@ -102,6 +118,10 @@ export async function executarComAprovacao(
           contexto,
       },
     );
+
+  duracaoAtivaMs +=
+    performance.now() -
+    inicioExecucao;
 
 
   // ====================================================
@@ -249,6 +269,9 @@ export async function executarComAprovacao(
     // RETOMAR O MESMO RUN
     // ==================================================
 
+    inicioExecucao =
+      performance.now();
+
     resultado =
       await runner.run(
         agente,
@@ -257,7 +280,38 @@ export async function executarComAprovacao(
           session,
         },
       );
+
+    duracaoAtivaMs +=
+      performance.now() -
+      inicioExecucao;
   }
+
+
+  // ====================================================
+  // RESUMO DA OBSERVABILIDADE
+  // ====================================================
+
+  const usage =
+    resultado.state.usage;
+
+  mostrarResumoExecucao({
+    duracaoMs:
+      duracaoAtivaMs,
+
+    usage: {
+      requests:
+        usage.requests,
+
+      inputTokens:
+        usage.inputTokens,
+
+      outputTokens:
+        usage.outputTokens,
+
+      totalTokens:
+        usage.totalTokens,
+    },
+  });
 
 
   return resultado;
