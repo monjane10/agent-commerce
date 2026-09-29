@@ -1,27 +1,33 @@
-import { MCPServerStdio } from "@openai/agents";
+import { MCPServerStreamableHttp } from "@openai/agents";
 
 
 // ======================================================
-// CLIENTE MCP — POLÍTICAS COMERCIAIS
+// CLIENTE MCP — POLÍTICAS COMERCIAIS (Streamable HTTP)
 //
-// Servidor local via stdio, somente leitura.
+// Servidor independente (npm run mcp:http), somente leitura.
+// Sem child process: apenas conecta à URL.
 // Lifecycle de aplicação: connect no arranque,
 // close no encerramento (ver src/cli/main.ts).
 // ======================================================
 
+export const MCP_POLITICAS_HOST = "127.0.0.1";
+
+export const MCP_POLITICAS_PORTA = Number(
+  process.env.MCP_COMMERCIAL_POLICY_PORT ?? 3002,
+);
+
+export const MCP_POLITICAS_URL =
+  process.env.MCP_COMMERCIAL_POLICY_URL ??
+  `http://${MCP_POLITICAS_HOST}:${MCP_POLITICAS_PORTA}/mcp`;
+
+
 export const servidorPoliticasMCP =
-  new MCPServerStdio({
-    name: "politicas-comerciais",
+  new MCPServerStreamableHttp({
+    name: "commercial-policies",
 
-    command: process.execPath,
+    url: MCP_POLITICAS_URL,
 
-    args: [
-      "--import",
-      "tsx",
-      "src/mcp/commercial-policy-server.ts",
-    ],
-
-    cwd: process.cwd(),
+    cacheToolsList: true,
   });
 
 
@@ -30,12 +36,13 @@ export async function conectarPoliticasMCP(): Promise<void> {
     await servidorPoliticasMCP.connect();
 
     console.log(
-      "MCP politicas-comerciais conectado.",
+      `MCP commercial-policies conectado via Streamable HTTP (${MCP_POLITICAS_URL}).`,
     );
   }
   catch (erro) {
     console.error(
-      "Erro técnico: não foi possível iniciar o servidor MCP politicas-comerciais.",
+      "Erro técnico: não foi possível conectar ao MCP commercial-policies " +
+      `em ${MCP_POLITICAS_URL}. Verifica se o servidor está rodando (npm run mcp:http).`,
     );
 
     console.error(
@@ -43,7 +50,7 @@ export async function conectarPoliticasMCP(): Promise<void> {
     );
 
     throw new Error(
-      "MCP politicas-comerciais indisponível.",
+      "MCP commercial-policies indisponível.",
     );
   }
 }

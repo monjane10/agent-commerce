@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "sdk": "tsx src/index.ts"
+    "sdk": "tsx src/index.ts",
+    "mcp:http": "tsx src/mcp/commercial-policy-http-server.ts"
   },
   "keywords": [],
   "author": "",
