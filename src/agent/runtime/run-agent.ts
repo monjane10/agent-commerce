@@ -39,6 +39,11 @@ import {
   mostrarResumoExecucao,
 } from "./observability.js";
 
+import {
+  medirContextoSession,
+  mostrarMetricasContexto,
+} from "./context-observability.js";
+
 
 export async function carregarContexto(
   session:
@@ -91,6 +96,24 @@ export async function executarComAprovacao(
     string,
 ) {
   // ====================================================
+  // DIAGNÓSTICO DE CONTEXTO (leitura apenas,
+  // antes do primeiro run; o resume do HITL
+  // pertence ao mesmo fluxo e não mede de novo)
+  // ====================================================
+
+  const metricasContexto =
+    await medirContextoSession(
+      session,
+      contexto.conversaId,
+    );
+
+  mostrarMetricasContexto(
+    metricasContexto,
+    contexto.estado,
+  );
+
+
+  // ====================================================
   // PRIMEIRA EXECUÇÃO
   // ====================================================
 
@@ -118,6 +141,13 @@ export async function executarComAprovacao(
 
         context:
           contexto,
+
+        // Guardrails de input das tools de escrita
+        // correm ANTES de criar a pending approval.
+        toolExecution: {
+          preApprovalInputGuardrails:
+            true,
+        },
       },
     );
 
@@ -378,6 +408,11 @@ export async function executarComAprovacao(
         resultado.state,
         {
           session,
+
+          toolExecution: {
+            preApprovalInputGuardrails:
+              true,
+          },
         },
       );
 

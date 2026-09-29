@@ -16,6 +16,10 @@ import {
   atualizarEstadoContexto,
 } from "../context.js";
 
+import {
+  criarVendaInputGuardrail,
+} from "../guardrails/write-tools.guardrails.js";
+
 
 export const criarVendaTool = tool({
   name:
@@ -31,6 +35,16 @@ export const criarVendaTool = tool({
 
   needsApproval:
     true,
+
+
+  // ====================================================
+  // GUARDRAIL DETERMINÍSTICO (antes do HITL via
+  // preApprovalInputGuardrails, e de novo após aprovar)
+  // ====================================================
+
+  inputGuardrails: [
+    criarVendaInputGuardrail,
+  ],
 
 
   parameters:

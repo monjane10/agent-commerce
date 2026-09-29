@@ -6,6 +6,10 @@ import {
   criarProduto,
 } from "../../tools/produtos.js";
 
+import {
+  criarProdutoInputGuardrail,
+} from "../guardrails/write-tools.guardrails.js";
+
 
 export const criarProdutoTool = tool({
   name:
@@ -21,6 +25,16 @@ export const criarProdutoTool = tool({
 
   needsApproval:
     true,
+
+
+  // ====================================================
+  // GUARDRAIL DETERMINÍSTICO (antes do HITL via
+  // preApprovalInputGuardrails, e de novo após aprovar)
+  // ====================================================
+
+  inputGuardrails: [
+    criarProdutoInputGuardrail,
+  ],
 
 
   parameters:
