@@ -4,16 +4,17 @@ import {
   urlPadraoPoliticas,
 } from "./commercial-policy-auth.js";
 
+import {
+  criarOAuthProvider,
+  executarLoginOAuth,
+} from "./oauth-provider.js";
+
 
 // ======================================================
 // CLIENTE MCP — POLÍTICAS COMERCIAIS (Streamable HTTP)
 //
 // Servidor independente (npm run mcp:http), somente leitura.
-// Envia o access token OAuth via Authorization: Bearer.
-// Token obtido fora de banda (variável local, nunca Git).
-// authProvider automático não é usado: sem suporte tipado
-// para fluxo browser na versão instalada (@openai/agents
-// 0.18.0 expõe authProvider apenas como any).
+// OAuth Authorization Code + PKCE via authProvider nativo.
 // Sem child process: apenas conecta à URL.
 // Lifecycle de aplicação: connect no arranque,
 // close no encerramento (ver src/cli/main.ts).
@@ -30,45 +31,27 @@ export const MCP_POLITICAS_URL =
   urlPadraoPoliticas(MCP_POLITICAS_HOST, MCP_POLITICAS_PORTA);
 
 
-function lerAccessToken(): string {
-  const token =
-    process.env.MCP_COMMERCIAL_POLICY_ACCESS_TOKEN;
+const provedorOAuth = criarOAuthProvider();
 
-  if (
-    typeof token !== "string" ||
-    token.trim() === ""
-  ) {
-    throw new Error(
-      "MCP_COMMERCIAL_POLICY_ACCESS_TOKEN não configurado.",
-    );
-  }
 
-  return token;
+export function obterProvedorOAuth(): typeof provedorOAuth {
+  return provedorOAuth;
 }
 
 
-function criarServidorPoliticasMCP(): MCPServerStreamableHttp {
-  // Fail-fast: sem access token não há conexão.
-  const token = lerAccessToken();
-
-  return new MCPServerStreamableHttp({
+export const servidorPoliticasMCP =
+  new MCPServerStreamableHttp({
     name: "commercial-policies",
 
     url: MCP_POLITICAS_URL,
 
     cacheToolsList: true,
 
-    requestInit: {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    },
+    // Boundary único com o campo `any` do SDK 0.18.0:
+    // o objeto entregue implementa OAuthClientProvider
+    // tipado do MCP SDK 1.31.0.
+    authProvider: provedorOAuth,
   });
-}
-
-
-export const servidorPoliticasMCP =
-  criarServidorPoliticasMCP();
 
 
 export async function conectarPoliticasMCP(): Promise<void> {
@@ -78,20 +61,37 @@ export async function conectarPoliticasMCP(): Promise<void> {
     console.log(
       `MCP commercial-policies conectado via Streamable HTTP (${MCP_POLITICAS_URL}).`,
     );
+
+    return;
   }
-  catch (erro) {
-    console.error(
-      "Erro técnico: não foi possível conectar ao MCP commercial-policies " +
-      `em ${MCP_POLITICAS_URL}. Verifica se o servidor está rodando (npm run mcp:http).`,
+  catch {
+    // Sem token válido: login interativo (uma vez) e retry.
+    await executarLoginOAuth(
+      provedorOAuth,
+      MCP_POLITICAS_URL,
     );
 
-    console.error(
-      erro,
-    );
+    try {
+      await servidorPoliticasMCP.connect();
 
-    throw new Error(
-      "MCP commercial-policies indisponível.",
-    );
+      console.log(
+        `MCP commercial-policies conectado via Streamable HTTP (${MCP_POLITICAS_URL}).`,
+      );
+    }
+    catch (erro) {
+      console.error(
+        "Erro técnico: não foi possível conectar ao MCP commercial-policies " +
+        `em ${MCP_POLITICAS_URL}. Verifica se o servidor está rodando (npm run mcp:http).`,
+      );
+
+      console.error(
+        erro,
+      );
+
+      throw new Error(
+        "MCP commercial-policies indisponível.",
+      );
+    }
   }
 }
 
