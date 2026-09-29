@@ -17,6 +17,8 @@ import type {
 import type {
   DadosVendaAprovacao,
   ResumoVendaAprovacao,
+  DadosProdutoAprovacao,
+  ResumoProdutoAprovacao,
 } from "../context.js";
 
 
@@ -329,5 +331,158 @@ export async function obterResumoVendaAprovacao(
     moeda,
 
     total,
+  };
+}
+
+
+export function extrairArgumentosProduto(
+  argumentos: unknown,
+): DadosProdutoAprovacao {
+  let valor:
+    unknown =
+    argumentos;
+
+
+  if (
+    typeof valor ===
+    "string"
+  ) {
+    try {
+      valor =
+        JSON.parse(
+          valor,
+        );
+    }
+    catch {
+      throw new Error(
+        "Não foi possível interpretar os dados do produto para aprovação.",
+      );
+    }
+  }
+
+
+  if (
+    typeof valor !==
+      "object" ||
+    valor === null
+  ) {
+    throw new Error(
+      "Os dados do produto para aprovação são inválidos.",
+    );
+  }
+
+
+  const objeto =
+    valor as Record<
+      string,
+      unknown
+    >;
+
+
+  const dados:
+    DadosProdutoAprovacao = {};
+
+
+  if (
+    typeof objeto.nome ===
+    "string"
+  ) {
+    dados.nome =
+      objeto.nome;
+  }
+
+
+  if (
+    typeof objeto.preco ===
+    "number"
+  ) {
+    dados.preco =
+      objeto.preco;
+  }
+
+
+  if (
+    typeof objeto.quantidade ===
+    "number"
+  ) {
+    dados.quantidade =
+      objeto.quantidade;
+  }
+
+
+  if (
+    typeof objeto.moeda ===
+    "string"
+  ) {
+    dados.moeda =
+      objeto.moeda;
+  }
+
+
+  return dados;
+}
+
+
+export function obterResumoProdutoAprovacao(
+  argumentos:
+    unknown,
+): ResumoProdutoAprovacao {
+  const dados =
+    extrairArgumentosProduto(
+      argumentos,
+    );
+
+
+  const nome =
+    dados.nome?.trim() ?? "";
+
+
+  const preco =
+    dados.preco;
+
+
+  const quantidade =
+    dados.quantidade;
+
+
+  const moeda =
+    dados.moeda?.trim() ||
+    "MZN";
+
+
+  if (!nome) {
+    throw new Error(
+      "Não foi possível identificar o nome do produto.",
+    );
+  }
+
+
+  if (
+    preco === undefined ||
+    !Number.isFinite(preco) ||
+    preco < 0
+  ) {
+    throw new Error(
+      "Preço do produto inválido.",
+    );
+  }
+
+
+  if (
+    quantidade === undefined ||
+    !Number.isInteger(quantidade) ||
+    quantidade < 0
+  ) {
+    throw new Error(
+      "Quantidade inicial inválida.",
+    );
+  }
+
+
+  return {
+    nome,
+    preco,
+    quantidade,
+    moeda,
   };
 }

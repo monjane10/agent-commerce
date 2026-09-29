@@ -22,10 +22,12 @@ import {
 import {
   atualizarStatusAprovacao,
   obterResumoVendaAprovacao,
+  obterResumoProdutoAprovacao,
 } from "./approval.js";
 
 import {
   mostrarResumoAprovacao,
+  mostrarResumoAprovacaoProduto,
 } from "../../cli/approval-view.js";
 
 import {
@@ -141,7 +143,105 @@ export async function executarComAprovacao(
       of interrupcoes
     ) {
       // ================================================
-      // ESTADO
+      // DISTINÇÃO MÍNIMA POR TOOL (getter oficial do SDK)
+      // ================================================
+
+      const nomeTool =
+        interruption.name;
+
+
+      // ================================================
+      // APROVAÇÃO DE PRODUTO (sem Agent State:
+      // Session + tool arguments + RunState/HITL)
+      // ================================================
+
+      if (
+        nomeTool ===
+        "criar_produto"
+      ) {
+        const resumoProduto =
+          obterResumoProdutoAprovacao(
+            interruption.arguments,
+          );
+
+
+        mostrarResumoAprovacaoProduto(
+          resumoProduto,
+        );
+
+
+        let decididoProduto =
+          false;
+
+
+        while (!decididoProduto) {
+          const respostaProduto =
+            await rl.question(
+              "Confirmar cadastro? (s/n): ",
+            );
+
+
+          const escolhaProduto =
+            respostaProduto
+              .trim()
+              .toLowerCase();
+
+
+          if (
+            escolhaProduto === "s" ||
+            escolhaProduto === "sim"
+          ) {
+            resultado.state.approve(
+              interruption,
+            );
+
+
+            console.log(
+              "\nCadastro aprovado.\n",
+            );
+
+
+            decididoProduto =
+              true;
+          }
+
+          else if (
+            escolhaProduto === "n" ||
+            escolhaProduto === "nao" ||
+            escolhaProduto === "não"
+          ) {
+            resultado.state.reject(
+              interruption,
+              {
+                message:
+                  "O cadastro do produto foi rejeitado pelo utilizador. A operação deve ser considerada cancelada.",
+              },
+            );
+
+
+            console.log(
+              "\nCadastro rejeitado.\n",
+            );
+
+
+            decididoProduto =
+              true;
+          }
+
+          else {
+            console.log(
+              '\nResposta inválida. Escreve "s" para confirmar ou "n" para rejeitar.\n',
+            );
+          }
+        }
+
+
+        continue;
+      }
+
+
+      // ================================================
+      // ESTADO (fluxo de venda existente)
       // ================================================
 
       await atualizarStatusAprovacao(

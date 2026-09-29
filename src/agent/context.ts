@@ -30,6 +30,22 @@ export type ResumoVendaAprovacao = {
 };
 
 
+export type DadosProdutoAprovacao = {
+  nome?: string;
+  preco?: number;
+  quantidade?: number;
+  moeda?: string;
+};
+
+
+export type ResumoProdutoAprovacao = {
+  nome: string;
+  preco: number;
+  quantidade: number;
+  moeda: string;
+};
+
+
 export function vendaEmCurso(
   estado: AgentState,
 ): boolean {

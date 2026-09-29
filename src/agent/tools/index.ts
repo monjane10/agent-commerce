@@ -20,5 +20,9 @@ export {
 } from "./create-sale.tool.js";
 
 export {
+  criarProdutoTool,
+} from "./create-product.tool.js";
+
+export {
   consultarVendasTool,
 } from "./sales.tool.js";

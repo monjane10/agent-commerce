@@ -1,5 +1,6 @@
 import type {
   ResumoVendaAprovacao,
+  ResumoProdutoAprovacao,
 } from "../agent/context.js";
 
 
@@ -77,6 +78,28 @@ Método de pagamento: ${resumo.metodoPagamento}`);
     );
   }
 
+
+  console.log();
+}
+
+
+export function mostrarResumoAprovacaoProduto(
+  resumo:
+    ResumoProdutoAprovacao,
+): void {
+  console.log(`
+===================================
+       APROVAÇÃO NECESSÁRIA
+===================================
+
+Novo produto:
+
+Nome: ${resumo.nome}
+Preço: ${formatarDinheiro(
+    resumo.preco,
+    resumo.moeda,
+  )}
+Stock inicial: ${resumo.quantidade} unidades`);
 
   console.log();
 }
