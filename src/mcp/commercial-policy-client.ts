@@ -1,10 +1,16 @@
 import { MCPServerStreamableHttp } from "@openai/agents";
 
+import {
+  lerTokenPoliticas,
+  urlPadraoPoliticas,
+} from "./commercial-policy-auth.js";
+
 
 // ======================================================
 // CLIENTE MCP — POLÍTICAS COMERCIAIS (Streamable HTTP)
 //
 // Servidor independente (npm run mcp:http), somente leitura.
+// Envia Authorization: Bearer <token> via requestInit.
 // Sem child process: apenas conecta à URL.
 // Lifecycle de aplicação: connect no arranque,
 // close no encerramento (ver src/cli/main.ts).
@@ -18,17 +24,31 @@ export const MCP_POLITICAS_PORTA = Number(
 
 export const MCP_POLITICAS_URL =
   process.env.MCP_COMMERCIAL_POLICY_URL ??
-  `http://${MCP_POLITICAS_HOST}:${MCP_POLITICAS_PORTA}/mcp`;
+  urlPadraoPoliticas(MCP_POLITICAS_HOST, MCP_POLITICAS_PORTA);
 
 
-export const servidorPoliticasMCP =
-  new MCPServerStreamableHttp({
+function criarServidorPoliticasMCP(): MCPServerStreamableHttp {
+  // Fail-fast: sem token não há conexão.
+  const token = lerTokenPoliticas();
+
+  return new MCPServerStreamableHttp({
     name: "commercial-policies",
 
     url: MCP_POLITICAS_URL,
 
     cacheToolsList: true,
+
+    requestInit: {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
   });
+}
+
+
+export const servidorPoliticasMCP =
+  criarServidorPoliticasMCP();
 
 
 export async function conectarPoliticasMCP(): Promise<void> {

@@ -4,10 +4,12 @@
 // Arranque: npm run mcp:http
 // Endpoint: http://127.0.0.1:3002/mcp
 //
-// Processo próprio, stateless (um transporte por pedido).
-// Só localhost. NÃO está pronto para exposição pública
-// (sem auth/TLS/rate limit — ver Fase 3).
+// Fase 3A: Bearer auth (MCP_COMMERCIAL_POLICY_TOKEN)
+// + rate limit em memória. Só localhost. NÃO está pronto
+// para exposição pública (falta OAuth/TLS — ver Fase 3B).
 // ======================================================
+
+import "dotenv/config";
 
 import {
   createServer,
@@ -23,12 +25,48 @@ import {
   criarCommercialPolicyMcpServer,
 } from "./commercial-policy-shared.js";
 
+import {
+  lerTokenPoliticas,
+  compararTokens,
+  extrairBearer,
+  criarLimitador,
+  RATE_LIMIT_JANELA_MS,
+  RATE_LIMIT_MAX_POR_IP,
+} from "./commercial-policy-auth.js";
+
 
 const HOST = "127.0.0.1";
 
 const PORTA = Number(
   process.env.MCP_COMMERCIAL_POLICY_PORT ?? 3002,
 );
+
+
+let TOKEN_ESPERADO = "";
+
+try {
+  TOKEN_ESPERADO = lerTokenPoliticas();
+}
+catch {
+  console.error(
+    "MCP_COMMERCIAL_POLICY_TOKEN não configurado.",
+  );
+
+  process.exit(1);
+}
+
+
+const verificarLimite = criarLimitador(
+  RATE_LIMIT_JANELA_MS,
+  RATE_LIMIT_MAX_POR_IP,
+);
+
+
+function ipPedido(
+  req: IncomingMessage,
+): string {
+  return req.socket.remoteAddress ?? "desconhecido";
+}
 
 
 function lerCorpo(
@@ -72,6 +110,7 @@ const http = createServer(
     try {
       // ==================================================
       // HEALTH CHECK (diagnóstico, não é MCP tool)
+      // Deliberadamente público: só responde status.
       // ==================================================
 
       if (
@@ -88,9 +127,50 @@ const http = createServer(
 
       // ==================================================
       // MCP (protocolo Streamable HTTP, stateless)
+      //
+      // Ordem: rate limit (conta tudo, inclusive sem
+      // auth) -> Bearer auth -> transporte MCP.
       // ==================================================
 
       if (req.url === "/mcp") {
+        const ip = ipPedido(req);
+
+        if (!verificarLimite(ip)) {
+          console.log(
+            "[MCP] rate limit exceeded",
+          );
+
+          res.writeHead(429, {
+            "Content-Type": "application/json",
+            "Retry-After": "60",
+          });
+
+          res.end('{"error":"too_many_requests"}');
+
+          return;
+        }
+
+        const recebido = extrairBearer(
+          req.headers.authorization,
+        );
+
+        if (
+          !compararTokens(recebido, TOKEN_ESPERADO)
+        ) {
+          console.log(
+            "[MCP] request unauthorized",
+          );
+
+          res.writeHead(401, {
+            "Content-Type": "application/json",
+            "WWW-Authenticate": "Bearer",
+          });
+
+          res.end('{"error":"unauthorized"}');
+
+          return;
+        }
+
         const servidor =
           criarCommercialPolicyMcpServer();
 
