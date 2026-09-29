@@ -1,0 +1,10 @@
+{
+  "_aviso": "DADOS DE DEMONSTRAÇÃO / TESTE — não são regras reais da empresa. Uso exclusivo para a experiência MCP Fase 1.",
+  "metodos_pagamento": [
+    "Dinheiro",
+    "M-Pesa",
+    "e-Mola"
+  ],
+  "devolucao": "Produtos podem ser devolvidos em até 7 dias mediante validação do estado do produto.",
+  "atendimento": "Atendimento durante o horário comercial, de segunda a sábado."
+}

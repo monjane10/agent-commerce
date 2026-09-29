@@ -19,6 +19,10 @@ import {
   criarProdutoTool,
 } from "./tools/index.js";
 
+import {
+  servidorPoliticasMCP,
+} from "../mcp/commercial-policy-client.js";
+
 
 export const agente =
   new Agent<AgentCommerceContext>({
@@ -40,5 +44,9 @@ export const agente =
       criarVendaTool,
       consultarVendasTool,
       criarProdutoTool,
+    ],
+
+    mcpServers: [
+      servidorPoliticasMCP,
     ],
   });
