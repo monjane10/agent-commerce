@@ -118,6 +118,24 @@ export function ativarObservabilidadeLocal(
 
 
   // ====================================================
+  // HANDOFF
+  // ====================================================
+
+  runner.on(
+    "agent_handoff",
+    (
+      _context,
+      fromAgent,
+      toAgent,
+    ) => {
+      console.log(
+        `[OBS] Handoff: ${fromAgent.name} → ${toAgent.name}`,
+      );
+    },
+  );
+
+
+  // ====================================================
   // AGENT END
   // ====================================================
 

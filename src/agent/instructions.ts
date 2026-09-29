@@ -6,6 +6,10 @@ import type {
   AgentCommerceContext,
 } from "./context.js";
 
+import type {
+  AgentState,
+} from "../state/agent-state.js";
+
 
 // ======================================================
 // INSTRUÇÕES BASE
@@ -468,20 +472,17 @@ REGRAS GERAIS
 
 
 // ======================================================
-// INSTRUÇÕES DINÂMICAS
+// BLOCO DE ESTADO (reutilizável pelos especialistas)
+//
+// Extraído sem alterar o conteúdo entregue ao
+// Agente Comercial: construirInstrucoes() devolve
+// exatamente o mesmo texto de antes.
 // ======================================================
 
-export function construirInstrucoes(
-  runContext:
-    RunContext<AgentCommerceContext>,
+export function construirBlocoEstadoInstrucoes(
+  estado: AgentState,
 ): string {
-  const estado =
-    runContext.context.estado;
-
-
   return `
-${INSTRUCOES_BASE}
-
 ========================================================
 ESTADO ATUAL DA TAREFA
 ========================================================
@@ -644,4 +645,22 @@ Não existe qualquer confirmação adicional.
 A resposta deve apenas informar o resultado da
 operação ao utilizador.
 `;
+}
+
+
+// ======================================================
+// INSTRUÇÕES DINÂMICAS
+// ======================================================
+
+export function construirInstrucoes(
+  runContext:
+    RunContext<AgentCommerceContext>,
+): string {
+  const estado =
+    runContext.context.estado;
+
+
+  return `
+${INSTRUCOES_BASE}
+${construirBlocoEstadoInstrucoes(estado)}`;
 }
