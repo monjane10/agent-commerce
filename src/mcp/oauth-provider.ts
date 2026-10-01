@@ -26,6 +26,10 @@ import {
   limparTokensLocais,
 } from "./oauth-token-store.js";
 
+import {
+  urlServidorMCP,
+} from "./commercial-policy-auth.js";
+
 
 // ======================================================
 // OAUTH CLIENT (Authorization Code + PKCE S256)
@@ -71,8 +75,7 @@ export function lerConfigOAuthClient(): ConfigOAuthClient {
 
   const resourceUrl =
     process.env.MCP_OAUTH_RESOURCE ??
-    process.env.MCP_COMMERCIAL_POLICY_URL ??
-    "http://127.0.0.1:3002/mcp";
+    urlServidorMCP();
 
   return {
     clientId: clientId.trim(),
@@ -194,7 +197,25 @@ export function iniciarCallbackOAuth(
 
   const promessaEscuta = new Promise<void>(
     (resolve, reject) => {
-      servidor.once("error", reject);
+      servidor.once("error", (erro: unknown) => {
+        if (
+          typeof erro === "object" &&
+          erro !== null &&
+          "code" in erro &&
+          (erro as Record<string, unknown>)["code"] ===
+            "EADDRINUSE"
+        ) {
+          reject(
+            new Error(
+              `Porta do callback OAuth ocupada (${url.port}): outra execução aberta?`,
+            ),
+          );
+
+          return;
+        }
+
+        reject(erro);
+      });
       servidor.listen(porta, "127.0.0.1", () => resolve());
     },
   );
@@ -211,6 +232,60 @@ export function iniciarCallbackOAuth(
       });
     },
   };
+}
+
+
+// Erros TLS locais (ex. CA interna do Caddy ainda não
+// confiada pelo Node). Nunca contornar: orientar o fix.
+function eErroTls(erro: unknown): boolean {
+  if (
+    typeof erro !== "object" ||
+    erro === null
+  ) {
+    return false;
+  }
+
+  const codigo =
+    "code" in erro
+      ? (erro as Record<string, unknown>)["code"]
+      : undefined;
+
+  const causa =
+    "cause" in erro
+      ? (erro as Record<string, unknown>)["cause"]
+      : undefined;
+
+  const codigos = [
+    "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+    "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+    "DEPTH_ZERO_SELF_SIGNED_CERT",
+    "CERT_HAS_EXPIRED",
+    "ERR_TLS_CERT_ALTNAME_INVALID",
+  ];
+
+  if (
+    typeof codigo === "string" &&
+    codigos.includes(codigo)
+  ) {
+    return true;
+  }
+
+  return typeof causa === "object" &&
+    causa !== null &&
+    typeof (causa as Record<string, unknown>)["code"] ===
+      "string" &&
+    codigos.includes(
+      (causa as Record<string, unknown>)["code"] as string,
+    );
+}
+
+
+function orientarTls(): void {
+  console.error(
+    "TLS não confiável: o Node não reconhece o certificado local. " +
+    "Executa `caddy trust` e define NODE_EXTRA_CA_CERTS para o " +
+    "certificado raiz do Caddy. Nunca desative a validação TLS.",
+  );
 }
 
 
@@ -425,70 +500,92 @@ export async function executarLoginOAuth(
   );
 
   try {
-    try {
-      const resultado = await auth(provider, { serverUrl });
-
-      if (resultado === "AUTHORIZED") {
-        return;
-      }
-    }
-    catch (erro) {
-      // Falha fora do fluxo interativo (ex. refresh com
-      // grant inválido): limpa e tenta uma única vez de novo.
-      if (
-        !(erro instanceof UnauthorizedError) &&
-        provider.tokens() !== undefined
-      ) {
-        console.log("[OAuth] token inválido, nova autorização");
-        await provider.invalidateCredentials();
-
-        const segunda = await auth(provider, { serverUrl });
-
-        if (segunda === "AUTHORIZED") {
-          return;
-        }
-      }
-      else {
-        throw erro;
-      }
-    }
-
-    const retorno = await callback.aguardar();
-
-    if (retorno.tipo === "timeout") {
-      throw new Error(
-        "Autenticação expirou sem callback. Tenta novamente.",
-      );
-    }
-
-    if (retorno.tipo === "erro") {
-      throw new Error(
-        "Autenticação cancelada pelo utilizador.",
-      );
-    }
-
-    if (
-      !retorno.code ||
-      !retorno.state ||
-      retorno.state !== provider.ultimoState
-    ) {
-      throw new Error(
-        "Callback OAuth inválido: state não corresponde.",
-      );
-    }
-
-    const final = await auth(provider, {
+    await executarLoginOAuthInterno(
+      provider,
       serverUrl,
-      authorizationCode: retorno.code,
-    });
-
-    if (final !== "AUTHORIZED") {
-      throw new Error(
-        "Não foi possível concluir a autenticação.",
-      );
+      callback,
+    );
+  }
+  catch (erro) {
+    if (eErroTls(erro)) {
+      orientarTls();
     }
+
+    throw erro;
   }
   finally {
     await callback.fechar();
+  }
+}
+
+
+async function executarLoginOAuthInterno(
+  provider: CommercialPolicyOAuthProvider,
+  serverUrl: string,
+  callback: {
+    aguardar: () => Promise<ResultadoCallback>;
+  },
+): Promise<void> {
+  try {
+    const resultado = await auth(provider, { serverUrl });
+
+    if (resultado === "AUTHORIZED") {
+      return;
+    }
+  }
+  catch (erro) {
+    // Falha fora do fluxo interativo (ex. refresh com
+    // grant inválido): limpa e tenta uma única vez de novo.
+    if (
+      !(erro instanceof UnauthorizedError) &&
+      provider.tokens() !== undefined
+    ) {
+      console.log("[OAuth] token inválido, nova autorização");
+      await provider.invalidateCredentials();
+
+      const segunda = await auth(provider, { serverUrl });
+
+      if (segunda === "AUTHORIZED") {
+        return;
+      }
+    }
+    else {
+      throw erro;
+    }
+  }
+
+  const retorno = await callback.aguardar();
+
+  if (retorno.tipo === "timeout") {
+    throw new Error(
+      "Autenticação expirou sem callback. Tenta novamente.",
+    );
+  }
+
+  if (retorno.tipo === "erro") {
+    throw new Error(
+      "Autenticação cancelada pelo utilizador.",
+    );
+  }
+
+  if (
+    !retorno.code ||
+    !retorno.state ||
+    retorno.state !== provider.ultimoState
+  ) {
+    throw new Error(
+      "Callback OAuth inválido: state não corresponde.",
+    );
+  }
+
+  const final = await auth(provider, {
+    serverUrl,
+    authorizationCode: retorno.code,
+  });
+
+  if (final !== "AUTHORIZED") {
+    throw new Error(
+      "Não foi possível concluir a autenticação.",
+    );
   }
 }

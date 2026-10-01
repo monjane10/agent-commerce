@@ -14,6 +14,12 @@ import {
   type KeyObject,
 } from "node:crypto";
 
+import { isIP } from "node:net";
+
+import type {
+  IncomingMessage,
+} from "node:http";
+
 
 export const SCOPE_POLITICAS_LEITURA = "policies:read";
 
@@ -70,11 +76,140 @@ export function urlPadraoPoliticas(
 }
 
 
+// URL do servidor MCP usada pelo cliente E pelo OAuth
+// (resource): pública validada > explícita > loopback.
+// Centraliza para nunca divergirem (audience estrita).
+export function urlServidorMCP(): string {
+  const publica = lerUrlPublica();
+
+  if (publica) {
+    return publica.resourceUrl;
+  }
+
+  const explicita =
+    process.env.MCP_COMMERCIAL_POLICY_URL;
+
+  if (
+    typeof explicita === "string" &&
+    explicita.trim() !== ""
+  ) {
+    return explicita.trim();
+  }
+
+  const porta = Number(
+    process.env.MCP_COMMERCIAL_POLICY_PORT ?? 3002,
+  );
+
+  return `http://127.0.0.1:${porta}/mcp`;
+}
+
+
 export function urlMetadataRecurso(
   host: string,
   porta: number,
 ): string {
   return `http://${host}:${porta}/.well-known/oauth-protected-resource/mcp`;
+}
+
+
+// ======================================================
+// URL PÚBLICA (Fase 4)
+//
+// MCP_PUBLIC_BASE_URL define o modo HTTPS atrás de proxy.
+// Ausente = modo direto interno (http loopback).
+// Quando definida exige https: sem credenciais/query/fragment.
+// Nunca derivar de Host/X-Forwarded-Host (Host injection).
+// ======================================================
+
+export type UrlsPublicas = {
+  base: string;
+  resourceUrl: string;
+  metadataUrl: string;
+};
+
+
+export function lerUrlPublica(): UrlsPublicas | null {
+  const base =
+    process.env.MCP_PUBLIC_BASE_URL;
+
+  if (
+    typeof base !== "string" ||
+    base.trim() === ""
+  ) {
+    return null;
+  }
+
+  const normalizada = base.trim().replace(/\/+$/g, "");
+
+  let url: URL;
+
+  try {
+    url = new URL(normalizada);
+  }
+  catch {
+    throw new Error(
+      "MCP_PUBLIC_BASE_URL inválida.",
+    );
+  }
+
+  if (
+    url.protocol !== "https:" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.search !== "" ||
+    url.hash !== ""
+  ) {
+    throw new Error(
+      "MCP_PUBLIC_BASE_URL inválida: usa https sem credenciais, query ou fragmento.",
+    );
+  }
+
+  return {
+    base: url.origin,
+    resourceUrl: `${url.origin}/mcp`,
+    metadataUrl: `${url.origin}/.well-known/oauth-protected-resource/mcp`,
+  };
+}
+
+
+export function confiarNoProxy(): boolean {
+  return process.env.MCP_TRUST_PROXY === "1";
+}
+
+
+function eLoopback(ip: string): boolean {
+  return ip === "127.0.0.1" ||
+    ip === "::1" ||
+    ip === "::ffff:127.0.0.1";
+}
+
+
+// IP do cliente: socket por padrão; X-Forwarded-For só quando
+// trust proxy ativo E a conexão vem do proxy (loopback).
+export function ipCliente(
+  req: IncomingMessage,
+  trustProxy: boolean,
+): string {
+  const socketIp =
+    req.socket.remoteAddress ?? "desconhecido";
+
+  if (
+    !trustProxy ||
+    !eLoopback(socketIp)
+  ) {
+    return socketIp;
+  }
+
+  const cabecalho = req.headers["x-forwarded-for"];
+
+  const primeiro =
+    (Array.isArray(cabecalho) ? cabecalho[0] : cabecalho)
+      ?.split(",")[0]
+      ?.trim() ?? "";
+
+  return primeiro !== "" && isIP(primeiro) !== 0
+    ? primeiro
+    : socketIp;
 }
 
 

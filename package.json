@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "sdk": "tsx src/index.ts",
-    "mcp:http": "tsx src/mcp/commercial-policy-http-server.ts"
+    "mcp:http": "tsx src/mcp/commercial-policy-http-server.ts",
+    "oauth:test-idp": "tsx test/oauth/test-idp.ts"
   },
   "keywords": [],
   "author": "",

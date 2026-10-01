@@ -1,13 +1,11 @@
 // ======================================================
 // SERVIDOR MCP INDEPENDENTE (Streamable HTTP, READ-ONLY)
 //
-// Arranque: npm run mcp:http
-// Endpoint: http://127.0.0.1:3002/mcp
+// Arranque: npm run mcp:http (ouve sempre 127.0.0.1:3002)
+// Externo (Fase 4): via reverse proxy + MCP_PUBLIC_BASE_URL
 //
-// Fase 3B: OAuth Resource Server (JWT RS256 via JWKS,
-// issuer/audience/expiração/scopes) + rate limit.
-// Só localhost. NÃO está pronto para exposição pública
-// (falta IdP real/OAuth completo/TLS — ver Fase 3C).
+// Fase 4: URLs OAuth externas configuráveis, trust proxy
+// explícito, /ready. Só localhost. NÃO expor publicamente.
 // ======================================================
 
 import "dotenv/config";
@@ -31,11 +29,15 @@ import {
   verificarTokenAcesso,
   metadataRecursoProtegido,
   urlMetadataRecurso,
+  lerUrlPublica,
+  confiarNoProxy,
+  ipCliente,
   extrairBearer,
   criarLimitador,
   RATE_LIMIT_JANELA_MS,
   RATE_LIMIT_MAX_POR_IP,
   type ConfigOAuth,
+  type UrlsPublicas,
 } from "./commercial-policy-auth.js";
 
 
@@ -45,9 +47,31 @@ const PORTA = Number(
   process.env.MCP_COMMERCIAL_POLICY_PORT ?? 3002,
 );
 
-const URL_RECURSO = `http://${HOST}:${PORTA}/mcp`;
+// Separação interno/externo (Fase 4): o Node ouve sempre
+// em loopback; URLs OAuth/metadata usam a base pública
+// quando configurada, senão a interna direta.
+const URLS_PUBLICAS: UrlsPublicas | null = (() => {
+  try {
+    return lerUrlPublica();
+  }
+  catch (erro) {
+    console.error(
+      erro instanceof Error ? erro.message : erro,
+    );
 
-const URL_METADATA = urlMetadataRecurso(HOST, PORTA);
+    process.exit(1);
+  }
+})();
+
+const URL_RECURSO = URLS_PUBLICAS
+  ? URLS_PUBLICAS.resourceUrl
+  : `http://${HOST}:${PORTA}/mcp`;
+
+const URL_METADATA = URLS_PUBLICAS
+  ? URLS_PUBLICAS.metadataUrl
+  : urlMetadataRecurso(HOST, PORTA);
+
+const TRUST_PROXY = confiarNoProxy();
 
 
 let CONFIG_OAUTH: ConfigOAuth;
@@ -68,13 +92,6 @@ const verificarLimite = criarLimitador(
   RATE_LIMIT_JANELA_MS,
   RATE_LIMIT_MAX_POR_IP,
 );
-
-
-function ipPedido(
-  req: IncomingMessage,
-): string {
-  return req.socket.remoteAddress ?? "desconhecido";
-}
 
 
 function lerCorpo(
@@ -134,6 +151,23 @@ const http = createServer(
 
 
       // ==================================================
+      // READINESS: processo vivo E inicializado
+      // (config OAuth carregada). Não testa IdP/JWKS.
+      // ==================================================
+
+      if (
+        req.url === "/ready" &&
+        req.method === "GET"
+      ) {
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+        });
+        res.end('{"status":"ready"}');
+        return;
+      }
+
+
+      // ==================================================
       // METADATA DO RECURSO PROTEGIDO (RFC 9728, público)
       // ==================================================
 
@@ -167,7 +201,7 @@ const http = createServer(
       // ==================================================
 
       if (req.url === "/mcp") {
-        const ip = ipPedido(req);
+        const ip = ipCliente(req, TRUST_PROXY);
 
         if (!verificarLimite(ip)) {
           console.log(
@@ -280,9 +314,9 @@ http.listen(PORTA, HOST, () => {
   console.log(`
 ===================================
  Commercial Policy MCP Server
- listening at:
+ internal:
  http://${HOST}:${PORTA}/mcp
-===================================
+${URLS_PUBLICAS ? ` external:\n ${URLS_PUBLICAS.resourceUrl}\n` : ""}===================================
 `);
 });
 

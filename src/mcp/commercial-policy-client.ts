@@ -1,7 +1,7 @@
 import { MCPServerStreamableHttp } from "@openai/agents";
 
 import {
-  urlPadraoPoliticas,
+  urlServidorMCP,
 } from "./commercial-policy-auth.js";
 
 import {
@@ -26,9 +26,39 @@ export const MCP_POLITICAS_PORTA = Number(
   process.env.MCP_COMMERCIAL_POLICY_PORT ?? 3002,
 );
 
-export const MCP_POLITICAS_URL =
-  process.env.MCP_COMMERCIAL_POLICY_URL ??
-  urlPadraoPoliticas(MCP_POLITICAS_HOST, MCP_POLITICAS_PORTA);
+export const MCP_POLITICAS_URL = (() => {
+  try {
+    return urlServidorMCP();
+  }
+  catch (erro) {
+    console.error(
+      erro instanceof Error ? erro.message : erro,
+    );
+
+    process.exit(1);
+  }
+})();
+
+
+function mensagemErroSegura(
+  erro: unknown,
+): string {
+  if (
+    erro instanceof Error &&
+    erro.message.trim() !== ""
+  ) {
+    return erro.message;
+  }
+
+  if (
+    typeof erro === "string" &&
+    erro.trim() !== ""
+  ) {
+    return erro;
+  }
+
+  return "falha desconhecida na conexão MCP";
+}
 
 
 const provedorOAuth = criarOAuthProvider();
@@ -79,13 +109,17 @@ export async function conectarPoliticasMCP(): Promise<void> {
       );
     }
     catch (erro) {
+      // NOTA: o SDK imprime antes "Error initializing MCP
+      // server: object" — é redação de segurança interna
+      // dele (getSafeErrorType), não o erro real. O motivo
+      // legível vai abaixo, sem secrets.
       console.error(
         "Erro técnico: não foi possível conectar ao MCP commercial-policies " +
         `em ${MCP_POLITICAS_URL}. Verifica se o servidor está rodando (npm run mcp:http).`,
       );
 
       console.error(
-        erro,
+        `Motivo: ${mensagemErroSegura(erro)}`,
       );
 
       throw new Error(
