@@ -7,9 +7,13 @@
 // POST /api/chat                 (JWT Supabase)
 // POST /api/approvals/:approvalId (JWT Supabase)
 //
-// Pipeline por request (Fase 6A):
+// Pipeline por request (Fase 6C):
 //   request ID
 //   -> headers de segurança
+//   -> CORS/origin validation (403 em /api/*
+//      com Origin não permitida)
+//   -> OPTIONS preflight (204, sem auth,
+//      sem rate limit, sem Agent)
 //   -> rate limit (antes de auth: credenciais
 //      inválidas também contam)
 //   -> Supabase auth (Bearer JWT, user do Auth)
@@ -19,7 +23,8 @@
 //   -> route handler
 //
 // IP = socket remoto. Sem X-Forwarded-For.
-// Sem HSTS (HTTP localhost), sem CORS (sem browser).
+// Sem HSTS (HTTP localhost).
+// CORS não é autenticação (ver cors.ts).
 // approval UUID NÃO é credencial: decidir exige
 // sempre Authorization Bearer (ver approval-store).
 // ======================================================
@@ -57,6 +62,13 @@ import {
   criarLimitador,
 } from "./rate-limit.js";
 
+import {
+  lerConfigCors,
+  lerOriginPedido,
+  origemEspelho,
+  cabecalhosCors,
+} from "./cors.js";
+
 const HOST = "127.0.0.1";
 
 const PORTA = Number(
@@ -78,6 +90,22 @@ const limiteApprovals = criarLimitador(
   20,
 );
 
+let CONFIG_CORS: ReturnType<
+  typeof lerConfigCors
+>;
+
+try {
+  CONFIG_CORS = lerConfigCors();
+} catch (erro) {
+  console.error(
+    erro instanceof Error
+      ? erro.message
+      : erro,
+  );
+
+  process.exit(1);
+}
+
 function ipRemoto(
   req: IncomingMessage,
 ): string {
@@ -96,7 +124,8 @@ function responder(
   extras?: Record<string, string>,
 ): void {
   const cabecalhos: Record<string, string> = {
-    "Content-Type": "application/json",
+    "Content-Type":
+      "application/json; charset=utf-8",
     "X-Request-Id": requestId,
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
@@ -300,6 +329,19 @@ const servidor = createServer(
       `[API] request=${requestId} ${metodo} ${caminho}`,
     );
 
+    // CORS (nunca autenticação): só a origin
+    // exata configurada é espelhada. Sem Origin
+    // (server-to-server/PowerShell) segue normal.
+    const espelho = origemEspelho(
+      req,
+      CONFIG_CORS,
+    );
+
+    const corsResposta: Record<string, string> =
+      espelho
+        ? cabecalhosCors(espelho, false)
+        : {};
+
     const responderAqui = (
       estado: number,
       corpo: unknown,
@@ -315,7 +357,10 @@ const servidor = createServer(
         requestId,
         estado,
         corpo,
-        extras,
+        {
+          ...corsResposta,
+          ...extras,
+        },
       );
     };
 
@@ -330,6 +375,54 @@ const servidor = createServer(
       null;
 
     try {
+      // ================================================
+      // ORIGIN NÃO PERMITIDA (só /api/*; sem Agent)
+      // ================================================
+
+      if (
+        lerOriginPedido(req) &&
+        !espelho &&
+        caminho.startsWith("/api/")
+      ) {
+        responderAqui(
+          403,
+          erroComId("origin_not_allowed"),
+        );
+
+        return;
+      }
+
+      // ================================================
+      // PREFLIGHT (204; sem auth, sem rate limit,
+      // sem Supabase, sem Agent)
+      // ================================================
+
+      if (metodo === "OPTIONS") {
+        if (!espelho) {
+          responderAqui(
+            404,
+            erroComId("not_found"),
+          );
+
+          return;
+        }
+
+        console.log(
+          `[API] request=${requestId} status=204`,
+        );
+
+        res.writeHead(204, {
+          "X-Request-Id": requestId,
+          "X-Content-Type-Options": "nosniff",
+          "Referrer-Policy": "no-referrer",
+          ...cabecalhosCors(espelho, true),
+        });
+
+        res.end();
+
+        return;
+      }
+
       // ================================================
       // HEALTH (público no-op)
       // ================================================
@@ -621,6 +714,12 @@ const servidor = createServer(
 servidor.listen(PORTA, HOST, () => {
   console.log(
     `Agent Commerce API em http://${HOST}:${PORTA}`,
+  );
+
+  console.log(
+    CONFIG_CORS
+      ? `CORS ativo para ${CONFIG_CORS.origem}.`
+      : "CORS desativado (AGENT_FRONTEND_ORIGIN ausente).",
   );
 
   // RunState vivia so em memoria: pendentes de um
