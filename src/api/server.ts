@@ -3,12 +3,30 @@
 //
 // node:http em 127.0.0.1:AGENT_API_PORT (default 3005).
 //
-// GET  /health
-// POST /api/chat
-// POST /api/approvals/:approvalId
+// GET  /health                   (público)
+// POST /api/chat                 (JWT Supabase)
+// POST /api/approvals/:approvalId (JWT Supabase)
+//
+// Pipeline por request (Fase 6A):
+//   request ID
+//   -> headers de segurança
+//   -> rate limit (antes de auth: credenciais
+//      inválidas também contam)
+//   -> Supabase auth (Bearer JWT, user do Auth)
+//   -> body parsing (limite 1 MB)
+//   -> validation
+//   -> ownership (conversa/approval do user)
+//   -> route handler
+//
+// IP = socket remoto. Sem X-Forwarded-For.
+// Sem HSTS (HTTP localhost), sem CORS (sem browser).
+// approval UUID NÃO é credencial: decidir exige
+// sempre Authorization Bearer (ver approval-store).
 // ======================================================
 
 import "dotenv/config";
+
+import { randomUUID } from "node:crypto";
 
 import {
   createServer,
@@ -22,6 +40,23 @@ import {
   ErroApi,
 } from "./agent-api.js";
 
+import {
+  expirarPendentesArranque,
+} from "./approval-store.js";
+
+import {
+  autenticarPedido,
+  CABECALHO_WWW_AUTHENTICATE,
+} from "./auth.js";
+
+import type {
+  AuthenticatedUser,
+} from "./auth.js";
+
+import {
+  criarLimitador,
+} from "./rate-limit.js";
+
 const HOST = "127.0.0.1";
 
 const PORTA = Number(
@@ -30,14 +65,50 @@ const PORTA = Number(
 
 const LIMITE_BODY_BYTES = 1024 * 1024;
 
-function responderJson(
+// 60 req/min geral em /api/*; 20 req/min em approvals.
+const JANELA_MS = 60000;
+
+const limiteGeral = criarLimitador(
+  JANELA_MS,
+  60,
+);
+
+const limiteApprovals = criarLimitador(
+  JANELA_MS,
+  20,
+);
+
+function ipRemoto(
+  req: IncomingMessage,
+): string {
+  return (
+    req.socket.remoteAddress ??
+    "desconhecido"
+  );
+}
+
+function responder(
   res: ServerResponse,
+  caminho: string,
+  requestId: string,
   estado: number,
   corpo: unknown,
+  extras?: Record<string, string>,
 ): void {
-  res.writeHead(estado, {
+  const cabecalhos: Record<string, string> = {
     "Content-Type": "application/json",
-  });
+    "X-Request-Id": requestId,
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    ...extras,
+  };
+
+  if (caminho.startsWith("/api/")) {
+    cabecalhos["Cache-Control"] =
+      "no-store";
+  }
+
+  res.writeHead(estado, cabecalhos);
 
   res.end(JSON.stringify(corpo));
 }
@@ -205,34 +276,170 @@ function validarDecision(
   return decision;
 }
 
+function eRotaApprovals(
+  caminho: string,
+): boolean {
+  return caminho.startsWith("/api/approvals/");
+}
+
 const servidor = createServer(
   async (
     req: IncomingMessage,
     res: ServerResponse,
   ) => {
+    // Request ID gerado sempre no servidor;
+    // X-Request-Id externo nunca reutilizado.
+    const requestId = randomUUID();
+
+    const caminho =
+      caminhoNormalizado(req.url);
+
+    const metodo = req.method ?? "";
+
+    console.log(
+      `[API] request=${requestId} ${metodo} ${caminho}`,
+    );
+
+    const responderAqui = (
+      estado: number,
+      corpo: unknown,
+      extras?: Record<string, string>,
+    ): void => {
+      console.log(
+        `[API] request=${requestId} status=${estado}`,
+      );
+
+      responder(
+        res,
+        caminho,
+        requestId,
+        estado,
+        corpo,
+        extras,
+      );
+    };
+
+    const erroComId = (
+      codigo: string,
+    ): Record<string, string> => ({
+      error: codigo,
+      requestId,
+    });
+
+    let utilizador: AuthenticatedUser | null =
+      null;
+
     try {
-      const caminho =
-        caminhoNormalizado(req.url);
+      // ================================================
+      // HEALTH (público no-op)
+      // ================================================
 
       if (
-        req.method === "GET" &&
+        metodo === "GET" &&
         caminho === "/health"
       ) {
-        responderJson(res, 200, {
+        responderAqui(200, {
           status: "ok",
         });
 
         return;
       }
 
+      // ================================================
+      // RATE LIMIT (/api/*, antes de auth)
+      // ================================================
+
+      if (caminho.startsWith("/api/")) {
+        const geral = limiteGeral(
+          ipRemoto(req),
+        );
+
+        if (!geral.permitido) {
+          responderAqui(
+            429,
+            erroComId("too_many_requests"),
+            {
+              "Retry-After": String(
+                geral.retryAfterSeg,
+              ),
+            },
+          );
+
+          return;
+        }
+
+        if (eRotaApprovals(caminho)) {
+          const especifico =
+            limiteApprovals(
+              ipRemoto(req),
+            );
+
+          if (!especifico.permitido) {
+            responderAqui(
+              429,
+              erroComId("too_many_requests"),
+              {
+                "Retry-After": String(
+                  especifico.retryAfterSeg,
+                ),
+              },
+            );
+
+            return;
+          }
+        }
+
+        // ==============================================
+        // AUTH JWT (Supabase; 401 genérico sem
+        // distinguir ausente/inválido/expirado)
+        // ==============================================
+
+        const autenticado =
+          await autenticarPedido(
+            req,
+            requestId,
+          );
+
+        if (!autenticado) {
+          responderAqui(
+            401,
+            erroComId("unauthorized"),
+            {
+              "WWW-Authenticate":
+                CABECALHO_WWW_AUTHENTICATE,
+            },
+          );
+
+          return;
+        }
+
+        utilizador = autenticado;
+      }
+
       if (
-        req.method === "POST" &&
+        metodo === "POST" &&
         caminho === "/api/chat"
       ) {
+        // Defesa em profundidade: rotas /api/*
+        // passam sempre pela auth acima.
+        if (!utilizador) {
+          responderAqui(
+            401,
+            erroComId("unauthorized"),
+            {
+              "WWW-Authenticate":
+                CABECALHO_WWW_AUTHENTICATE,
+            },
+          );
+
+          return;
+        }
+
         if (!eJson(req)) {
-          responderJson(res, 415, {
+          responderAqui(415, {
             error:
               "unsupported_media_type",
+            requestId,
           });
 
           return;
@@ -260,10 +467,11 @@ const servidor = createServer(
         const resposta = await processarChat(
           pedido.message,
           pedido.conversationId,
+          utilizador,
         );
 
         if (resposta.status === "completed") {
-          responderJson(res, 200, {
+          responderAqui(200, {
             status: "completed",
             conversationId:
               resposta.conversationId,
@@ -273,7 +481,7 @@ const servidor = createServer(
           return;
         }
 
-        responderJson(res, 200, {
+        responderAqui(200, {
           status: "approval_required",
           conversationId:
             resposta.conversationId,
@@ -284,13 +492,27 @@ const servidor = createServer(
       }
 
       if (
-        req.method === "POST" &&
-        caminho.startsWith("/api/approvals/")
+        metodo === "POST" &&
+        eRotaApprovals(caminho)
       ) {
+        if (!utilizador) {
+          responderAqui(
+            401,
+            erroComId("unauthorized"),
+            {
+              "WWW-Authenticate":
+                CABECALHO_WWW_AUTHENTICATE,
+            },
+          );
+
+          return;
+        }
+
         if (!eJson(req)) {
-          responderJson(res, 415, {
+          responderAqui(415, {
             error:
               "unsupported_media_type",
+            requestId,
           });
 
           return;
@@ -304,8 +526,9 @@ const servidor = createServer(
           idBruto === "" ||
           idBruto.includes("/")
         ) {
-          responderJson(res, 404, {
+          responderAqui(404, {
             error: "approval_not_found",
+            requestId,
           });
 
           return;
@@ -335,10 +558,11 @@ const servidor = createServer(
           await decidirApproval(
             decodeURIComponent(idBruto),
             decision,
+            utilizador,
           );
 
         if (resposta.status === "completed") {
-          responderJson(res, 200, {
+          responderAqui(200, {
             status: "completed",
             conversationId:
               resposta.conversationId,
@@ -348,7 +572,7 @@ const servidor = createServer(
           return;
         }
 
-        responderJson(res, 200, {
+        responderAqui(200, {
           status: "approval_required",
           conversationId:
             resposta.conversationId,
@@ -358,27 +582,34 @@ const servidor = createServer(
         return;
       }
 
-      responderJson(res, 404, {
+      responderAqui(404, {
         error: "not_found",
+        requestId,
       });
     } catch (erro) {
       if (erro instanceof ErroApi) {
-        responderJson(res, erro.estado, {
+        responderAqui(erro.estado, {
           error: erro.codigo,
+          requestId,
         });
 
         return;
       }
 
+      // Stack só no log interno, com requestId.
+      // Resposta pública: sem stack, sem secrets.
       console.error(
-        erro instanceof Error
-          ? erro.message
-          : erro,
+        `[API] request=${requestId} erro interno: ${
+          erro instanceof Error
+            ? erro.stack ?? erro.message
+            : erro
+        }`,
       );
 
       if (!res.headersSent) {
-        responderJson(res, 500, {
+        responderAqui(500, {
           error: "internal_error",
+          requestId,
         });
       } else {
         res.end();
@@ -390,6 +621,25 @@ const servidor = createServer(
 servidor.listen(PORTA, HOST, () => {
   console.log(
     `Agent Commerce API em http://${HOST}:${PORTA}`,
+  );
+
+  // RunState vivia so em memoria: pendentes de um
+  // processo anterior nunca podem retomar.
+  expirarPendentesArranque().then(
+    (quantidade) => {
+      if (quantidade > 0) {
+        console.log(
+          `Approvals expirados no arranque: ${quantidade}.`,
+        );
+      }
+    },
+    (erro) => {
+      console.error(
+        erro instanceof Error
+          ? erro.message
+          : erro,
+      );
+    },
   );
 });
 

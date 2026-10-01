@@ -41,11 +41,19 @@ import {
 } from "../agent/runtime/observability.js";
 
 import {
-  guardarApproval,
-  consumirApproval,
-  existeApprovalParaConversa,
+  guardarRuntime,
+  consumirRuntime,
+  existePendenteParaConversa,
+  criarLinhaApproval,
+  marcarDecisao,
+  expirarSeOrfa,
+  obterDonoDaConversaDoApproval,
   type OperacaoAprovacao,
 } from "./approval-store.js";
+
+import type {
+  AuthenticatedUser,
+} from "./auth.js";
 
 
 // ======================================================
@@ -121,8 +129,14 @@ export type RespostaChat =
 // SESSÃO POR CONVERSA NUMÉRICA
 // ======================================================
 
+// SupabaseSession só é construída DEPOIS da
+// verificação de ownership (nunca JWT de A com
+// conversa de B). Conversas legadas user_id null
+// não pertencem a ninguém: 404, não 403 (não
+// revelar existência de recursos alheios).
 async function resolverSessaoExistente(
   conversationId: number,
+  userId: string,
 ): Promise<{
   session: SupabaseSession;
   sessionId: string;
@@ -132,6 +146,7 @@ async function resolverSessaoExistente(
     .from("conversas")
     .select("id, sdk_session_id")
     .eq("id", conversationId)
+    .eq("user_id", userId)
     .maybeSingle();
 
   if (error) {
@@ -168,6 +183,7 @@ async function resolverSessaoExistente(
 
 async function criarNovaSessao(
   mensagem: string,
+  userId: string,
 ): Promise<{
   session: SupabaseSession;
   sessionId: string;
@@ -186,6 +202,19 @@ async function criarNovaSessao(
     sessionId,
     mensagem,
   );
+
+  // Owner escolhido pelo servidor (id do JWT),
+  // nunca pelo cliente. Só carimba se ainda null
+  // (corrida improvável, nunca roubar owner).
+  const { error } = await supabase
+    .from("conversas")
+    .update({ user_id: userId })
+    .eq("id", conversaId)
+    .is("user_id", null);
+
+  if (error) {
+    throw new ErroApi(500, "internal_error");
+  }
 
   return {
     session,
@@ -348,7 +377,16 @@ async function registarInterrupcao(
 
   const approvalId = randomUUID();
 
-  guardarApproval({
+  // Durable primeiro, runtime depois: se a base
+  // falhar, nada fica pendente em memoria.
+  await criarLinhaApproval({
+    id: approvalId,
+    conversaId,
+    operacao,
+    summary,
+  });
+
+  guardarRuntime({
     approvalId,
     conversaId,
     sessionId,
@@ -377,6 +415,7 @@ async function registarInterrupcao(
 export async function processarChat(
   mensagem: string,
   conversationId: number | undefined,
+  user: AuthenticatedUser,
 ): Promise<RespostaChat> {
   let resolvida: {
     session: SupabaseSession;
@@ -387,15 +426,17 @@ export async function processarChat(
   if (conversationId === undefined) {
     resolvida = await criarNovaSessao(
       mensagem,
+      user.id,
     );
   } else {
     resolvida = await resolverSessaoExistente(
       conversationId,
+      user.id,
     );
   }
 
   if (
-    existeApprovalParaConversa(
+    await existePendenteParaConversa(
       resolvida.conversaId,
     )
   ) {
@@ -433,6 +474,7 @@ export async function processarChat(
 export async function decidirApproval(
   approvalId: string,
   decision: string,
+  user: AuthenticatedUser,
 ): Promise<RespostaChat> {
   if (
     decision !== "approve" &&
@@ -441,11 +483,32 @@ export async function decidirApproval(
     throw new ErroApi(400, "invalid_request");
   }
 
-  // Consumo one-time: a partir daqui o id morre.
+  // Ownership ANTES do consumo one-time: tentativa
+  // de outro utilizador dá 404 e preserva o pending
+  // do dono (não consome o claim).
+  const dono =
+    await obterDonoDaConversaDoApproval(
+      approvalId,
+    );
+
+  if (dono !== user.id) {
+    throw new ErroApi(
+      404,
+      "approval_not_found",
+    );
+  }
+
+  // Consumo one-time: a partir daqui o id morre
+  // na memoria. Sem runtime, retomar e impossivel:
+  // expira a linha se ainda estiver pending.
   const pendente =
-    consumirApproval(approvalId);
+    consumirRuntime(approvalId);
 
   if (!pendente) {
+    await expirarSeOrfa(approvalId).catch(
+      () => undefined,
+    );
+
     throw new ErroApi(
       404,
       "approval_not_found",
@@ -495,6 +558,15 @@ export async function decidirApproval(
           },
     );
   }
+
+  // Linha durable acompanha a decisao humana;
+  // a retomada abaixo usa so a memoria.
+  await marcarDecisao(
+    approvalId,
+    decision === "approve"
+      ? "approved"
+      : "rejected",
+  );
 
   const inicio = performance.now();
 
