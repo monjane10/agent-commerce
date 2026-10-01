@@ -6,15 +6,13 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "sdk": "tsx src/index.ts",
-    "mcp:http": "tsx src/mcp/commercial-policy-http-server.ts",
-    "oauth:test-idp": "tsx test/oauth/test-idp.ts"
+    "api": "tsx src/api/server.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.31.0",
     "@openai/agents": "^0.18.0",
     "@supabase/supabase-js": "^2.116.0",
     "dotenv": "^17.4.2",

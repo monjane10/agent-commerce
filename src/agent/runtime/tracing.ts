@@ -12,6 +12,7 @@ import type {
 type CriarRunnerParams = {
   sessionId: string;
   contexto: AgentCommerceContext;
+  interface?: "cli" | "api";
 };
 
 
@@ -40,7 +41,7 @@ export function criarRunner(
         ),
 
       interface:
-        "cli",
+        params.interface ?? "cli",
     },
 
     // Não enviar conteúdo sensível dos inputs/outputs

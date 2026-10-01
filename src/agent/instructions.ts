@@ -468,12 +468,6 @@ REGRAS GERAIS
 
 - Responde de forma direta, sem rodeios
   nem detalhes desnecessários.
-
-- Para políticas comerciais de demonstração
-  (pagamentos, devolução, atendimento), usa a
-  ferramenta MCP consultar_politicas_comerciais.
-  Para stock, produtos, clientes e vendas,
-  continua a usar as Function Tools existentes.
 `;
 
 

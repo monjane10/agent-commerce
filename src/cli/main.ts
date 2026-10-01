@@ -22,11 +22,6 @@ import {
   executarComAprovacao,
 } from "../agent/runtime/run-agent.js";
 
-import {
-  conectarPoliticasMCP,
-  desconectarPoliticasMCP,
-} from "../mcp/commercial-policy-client.js";
-
 
 export async function iniciarAplicacao():
   Promise<void> {
@@ -42,13 +37,6 @@ export async function iniciarAplicacao():
     AGENT COMMERCE - AGENTS SDK
 ===================================
 `);
-
-
-  // ====================================================
-  // MCP (lifecycle de aplicação: connect uma vez)
-  // ====================================================
-
-  await conectarPoliticasMCP();
 
 
   // ====================================================
@@ -124,8 +112,6 @@ Escreve "sair" para terminar.
       console.log(
         "\nConversa terminada.",
       );
-
-      await desconectarPoliticasMCP();
 
       break;
     }
