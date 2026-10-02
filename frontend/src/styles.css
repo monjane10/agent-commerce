@@ -164,6 +164,35 @@ textarea:focus-visible {
   gap: 8px;
 }
 
+.aprovacao {
+  margin: 0;
+  padding: 12px 16px;
+  background: var(--system-bubble);
+  border-bottom: 1px solid var(--system-border);
+}
+
+.aprovacao-titulo {
+  margin: 0 0 6px;
+  font-weight: 700;
+}
+
+.aprovacao-resumo {
+  margin: 0 0 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.9rem;
+}
+
+.aprovacao-acoes {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.aprovacao-acoes .botao-primario {
+  margin-top: 0;
+}
+
 .aviso {
   margin: 0;
   padding: 10px 16px;

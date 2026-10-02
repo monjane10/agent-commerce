@@ -1,9 +1,12 @@
 import { useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { AgentApiError } from "../types/api";
+import { AgentApiError, type ApprovalSummary } from "../types/api";
 import {
+  formatarResumo,
   mensagemErroAmigavel,
   postChat,
+  postDecisaoApproval,
+  type DecisaoApproval,
 } from "../lib/agent-api";
 import { MessageBubble, type ChatMessage } from "./MessageBubble";
 
@@ -20,7 +23,7 @@ function novoId(): string {
 
 const MENSAGEM_APPROVAL =
   "Esta operação requer confirmação antes de ser executada. " +
-  "A aprovação será feita numa próxima fase; por agora, pode começar uma nova conversa.";
+  "Reveja o resumo e aprove ou rejeite.";
 
 export function Chat({ emailUtilizador, aoSair }: Props) {
   const [mensagens, setMensagens] = useState<ChatMessage[]>([]);
@@ -28,16 +31,24 @@ export function Chat({ emailUtilizador, aoSair }: Props) {
   const [conversationId, setConversationId] = useState<number | null>(
     null,
   );
-  const [approvalPendente, setApprovalPendente] = useState(false);
+  // Approval pendente com dados para decidir (Fase 7B).
+  // "Nova conversa" limpa só o estado local: NÃO cancela o
+  // approval persistido no backend.
+  const [approval, setApproval] = useState<ApprovalSummary | null>(
+    null,
+  );
   const [aEnviar, setAEnviar] = useState(false);
+  const [aDecidir, setADecidir] = useState(false);
+  // 409 sem approval conhecido (ex.: estado perdido): a
+  // conversa continua bloqueada até nova conversa.
+  const [bloqueado, setBloqueado] = useState(false);
   const aEnviarRef = useRef(false);
 
   function novaConversa() {
-    // Limpa apenas o estado local. Isto NÃO cancela o approval
-    // persistido no backend (Fase 7B tratará approve/reject).
     setConversationId(null);
     setMensagens([]);
-    setApprovalPendente(false);
+    setApproval(null);
+    setBloqueado(false);
     setRascunho("");
   }
 
@@ -66,7 +77,7 @@ export function Chat({ emailUtilizador, aoSair }: Props) {
   async function enviar() {
     const texto = rascunho.trim();
     // Impede duplo envio e mensagens vazias.
-    if (texto === "" || aEnviarRef.current || approvalPendente) return;
+    if (texto === "" || aEnviarRef.current || approval !== null || bloqueado) return;
     aEnviarRef.current = true;
     setAEnviar(true);
 
@@ -88,20 +99,22 @@ export function Chat({ emailUtilizador, aoSair }: Props) {
           { id: novoId(), role: "assistant", content: resposta.message },
         ]);
       } else {
-        // Fase 7A: reconhecer approval_required sem botões
-        // approve/reject e sem quebrar. O backend responde
-        // 409 se a mesma conversa continuar com approval
-        // pendente, por isso o composer é bloqueado.
-        setApprovalPendente(true);
-        const resumo = `Operação: ${resposta.approval.operation}. ${resposta.approval.summary}`;
+        // approval_required: guarda conversationId e o
+        // approval (com id) para decisão, e bloqueia o
+        // composer — o backend responde 409 se a mesma
+        // conversa continuar com approval pendente.
+        setApproval(resposta.approval);
+        const resumo =
+          `Operação: ${resposta.approval.operation}.\n` +
+          formatarResumo(resposta.approval.summary);
         adicionarSistema(`${MENSAGEM_APPROVAL}\n${resumo}`);
       }
     } catch (erro) {
       if (
         erro instanceof AgentApiError &&
-        erro.code === "approval_pending"
+        erro.httpStatus === 409
       ) {
-        setApprovalPendente(true);
+        setBloqueado(true);
       }
       if (erro instanceof AgentApiError && erro.httpStatus === 401) {
         // Sessão irrecuperável (refresh já tentado uma vez
@@ -119,6 +132,57 @@ export function Chat({ emailUtilizador, aoSair }: Props) {
     }
   }
 
+  // Fluxo 7B: Confirmação humana -> Aprovar/Rejeitar ->
+  // Execução -> resposta no próprio chat. Consumo one-time:
+  // cada approval só pode ser decidido uma vez.
+  async function decidir(decision: DecisaoApproval) {
+    if (approval === null || aDecidir) return;
+    setADecidir(true);
+    try {
+      const resposta = await postDecisaoApproval(
+        approval.id,
+        decision,
+      );
+      setConversationId(resposta.conversationId);
+
+      if (resposta.status === "completed") {
+        setApproval(null);
+        setBloqueado(false);
+        setMensagens((atuais) => [
+          ...atuais,
+          { id: novoId(), role: "assistant", content: resposta.message },
+        ]);
+      } else {
+        // Cadeia rara: nova interrupção após retomar.
+        setApproval(resposta.approval);
+        const resumo =
+          `Operação: ${resposta.approval.operation}.\n` +
+          formatarResumo(resposta.approval.summary);
+        adicionarSistema(`${MENSAGEM_APPROVAL}\n${resumo}`);
+      }
+    } catch (erro) {
+      if (erro instanceof AgentApiError && erro.httpStatus === 401) {
+        await supabase.auth.signOut();
+        aoSair();
+        return;
+      }
+      if (
+        erro instanceof AgentApiError &&
+        erro.code === "approval_not_found"
+      ) {
+        // Já decidida/expirada noutro local: libertar a
+        // conversa e deixar o utilizador continuar.
+        setApproval(null);
+        setBloqueado(false);
+      }
+      const requestId =
+        erro instanceof AgentApiError ? erro.requestId : null;
+      adicionarSistema(mensagemErroAmigavel(erro), requestId);
+    } finally {
+      setADecidir(false);
+    }
+  }
+
   function teclaPressionada(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     // Enter envia; Shift+Enter quebra linha.
     if (e.key === "Enter" && !e.shiftKey) {
@@ -127,7 +191,8 @@ export function Chat({ emailUtilizador, aoSair }: Props) {
     }
   }
 
-  const composerBloqueado = aEnviar || approvalPendente;
+  const composerBloqueado =
+    aEnviar || approval !== null || bloqueado;
 
   return (
     <div className="chat">
@@ -154,7 +219,37 @@ export function Chat({ emailUtilizador, aoSair }: Props) {
         </div>
       </header>
 
-      {approvalPendente ? (
+      {approval !== null ? (
+        <section
+          className="aprovacao"
+          aria-label="Confirmação de operação"
+        >
+          <p className="aprovacao-titulo" role="status">
+            Operação a aguardar confirmação: {approval.operation}
+          </p>
+          <p className="aprovacao-resumo">
+            {formatarResumo(approval.summary)}
+          </p>
+          <div className="aprovacao-acoes">
+            <button
+              className="botao botao-primario"
+              type="button"
+              onClick={() => void decidir("approve")}
+              disabled={aDecidir}
+            >
+              {aDecidir ? "A decidir…" : "Aprovar e executar"}
+            </button>
+            <button
+              className="botao botao-secundario"
+              type="button"
+              onClick={() => void decidir("reject")}
+              disabled={aDecidir}
+            >
+              Rejeitar
+            </button>
+          </div>
+        </section>
+      ) : bloqueado ? (
         <p className="aviso" role="status">
           Existe uma operação pendente de confirmação. Comece uma
           nova conversa para continuar.
@@ -189,8 +284,8 @@ export function Chat({ emailUtilizador, aoSair }: Props) {
           aria-label="Mensagem para o Agent Commerce"
           rows={2}
           placeholder={
-            approvalPendente
-              ? "Conversa bloqueada — inicie uma nova conversa"
+            composerBloqueado
+              ? "Conversa bloqueada — decida a operação ou inicie uma nova conversa"
               : "Escreva a sua mensagem… (Enter envia, Shift+Enter quebra linha)"
           }
           value={rascunho}

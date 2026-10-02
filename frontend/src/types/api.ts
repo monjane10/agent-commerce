@@ -10,7 +10,9 @@ export type ChatCompletedResponse = {
 export type ApprovalSummary = {
   id: string;
   operation: string;
-  summary: string;
+  // O backend envia summary como objeto (ex.: {nome, preco,
+  // quantidadeInicial, moeda} ou {cliente, produto, ...}).
+  summary: string | Record<string, string | number | boolean | null>;
 };
 
 export type ChatApprovalRequiredResponse = {
